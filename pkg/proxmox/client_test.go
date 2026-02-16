@@ -181,8 +181,8 @@ func TestStopLXC(t *testing.T) {
 
 func TestDeleteLXC(t *testing.T) {
 	ts, c := testServer(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api2/json/nodes/pve/lxc/100" && r.Method == http.MethodDelete {
-			t.Errorf("unexpected path: %s", r.URL.Path)
+		if r.URL.Path != "/api2/json/nodes/pve/lxc/100" || r.Method != http.MethodDelete {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Write(envelope("UPID:pve:delete:100"))
 	})
