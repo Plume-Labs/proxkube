@@ -321,9 +321,9 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 				Gateway:  n.Gateway,
 				Firewall: n.Firewall,
 			}
-			// When expose is off (internal-only) and the user has set a
-			// firewall explicitly, keep it; otherwise enable firewall to
-			// block external access.
+			// When the pod is internal-only (expose=false) and the user
+			// has not explicitly enabled the firewall, automatically
+			// enable it to block external access by default.
 			if !pod.Spec.Expose && !n.Firewall {
 				nc.Firewall = true
 			}

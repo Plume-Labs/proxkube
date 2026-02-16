@@ -247,10 +247,15 @@ func TestParseMemoryMB(t *testing.T) {
 		{"512mb", 512},
 	}
 	for _, tc := range tests {
-		got := parseMemoryMB(tc.in)
+		got := parseMemoryMB(tc.in, 512)
 		if got != tc.out {
 			t.Errorf("parseMemoryMB(%q) = %d, want %d", tc.in, got, tc.out)
 		}
+	}
+
+	// Unparseable value should return the provided default.
+	if got := parseMemoryMB("invalid", 1024); got != 1024 {
+		t.Errorf("expected default 1024, got %d", got)
 	}
 }
 

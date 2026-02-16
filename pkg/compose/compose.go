@@ -377,11 +377,11 @@ func applyResources(pod *api.Pod, res *DeployResources, opts ConvertOptions) {
 		}
 	}
 	if spec.Memory != "" {
-		pod.Spec.Resources.Memory = parseMemoryMB(spec.Memory)
+		pod.Spec.Resources.Memory = parseMemoryMB(spec.Memory, opts.DefaultMemoryMB)
 	}
 }
 
-func parseMemoryMB(s string) int {
+func parseMemoryMB(s string, defaultMB int) int {
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
 	if strings.HasSuffix(s, "g") || strings.HasSuffix(s, "gb") {
@@ -400,5 +400,5 @@ func parseMemoryMB(s string) int {
 	if v, err := strconv.Atoi(s); err == nil {
 		return v
 	}
-	return 512
+	return defaultMB
 }
