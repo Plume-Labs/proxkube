@@ -2,13 +2,13 @@ package operator
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/GothShoot/proxkube/pkg/api"
 	"github.com/GothShoot/proxkube/pkg/controller"
 	"github.com/GothShoot/proxkube/pkg/proxmox"
-	"fmt"
-	"time"
 )
 
 // --- mock ProxmoxAPI for testing ---
