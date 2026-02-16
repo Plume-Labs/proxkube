@@ -90,6 +90,10 @@ type ConvertOptions struct {
 	DefaultMemoryMB int
 	// DefaultCPU is the default CPU count when not specified.
 	DefaultCPU int
+	// DefaultPool is the Proxmox resource pool for containers.
+	DefaultPool string
+	// DefaultTags are tags applied to all containers in the stack.
+	DefaultTags []string
 }
 
 // DefaultConvertOptions returns sensible defaults for conversion.
@@ -166,6 +170,7 @@ func serviceToPod(name string, svc *Service, opts ConvertOptions, nets map[strin
 			Hostname:    svc.Hostname,
 			Expose:      len(svc.Ports) > 0,
 			Environment: parseEnvironment(svc.Environment),
+			Pool:        opts.DefaultPool,
 			Resources: api.Resources{
 				CPU:     opts.DefaultCPU,
 				Memory:  opts.DefaultMemoryMB,
@@ -174,6 +179,12 @@ func serviceToPod(name string, svc *Service, opts ConvertOptions, nets map[strin
 			},
 		},
 	}
+
+	// Apply default tags + service name tag.
+	tags := make([]string, 0, len(opts.DefaultTags)+1)
+	tags = append(tags, opts.DefaultTags...)
+	tags = append(tags, name)
+	pod.Spec.Tags = tags
 
 	if pod.Spec.Hostname == "" {
 		pod.Spec.Hostname = name

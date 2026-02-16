@@ -25,9 +25,23 @@ spec:
     - name: frontend
       bridge: vmbr0
       ip: dhcp
+  # Tags visible in Proxmox dashboard (proxkube tag is auto-added)
+  tags:
+    - web
+    - production
+  # Assign to a Proxmox resource pool
+  pool: web-servers
+  # Description shown in the Proxmox dashboard notes panel
+  description: "NGINX web server managed by proxkube"
   resources:
     cpu: 2
     memory: 512
     swap: 256
     disk: 8
     storage: local-lvm
+  # Additional storage mount points
+  mountPoints:
+    - storage: local-lvm
+      size: 10
+      mountPath: /mnt/data
+      backup: true

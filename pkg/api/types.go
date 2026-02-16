@@ -61,6 +61,16 @@ type PodSpec struct {
 	Volumes []VolumeMount `json:"volumes,omitempty" yaml:"volumes,omitempty"`
 	// DependsOn lists pod names that must be running before this pod starts.
 	DependsOn []string `json:"dependsOn,omitempty" yaml:"dependsOn,omitempty"`
+	// Tags are semicolon-separated labels applied to the container, visible
+	// in the Proxmox dashboard (e.g. "proxkube;web;production").
+	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	// Pool is the Proxmox resource pool to assign this container to.
+	Pool string `json:"pool,omitempty" yaml:"pool,omitempty"`
+	// Description is free-form text displayed in the Proxmox dashboard
+	// notes/description panel for the container.
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	// MountPoints defines additional storage mount points (mp0, mp1, ...).
+	MountPoints []MountPoint `json:"mountPoints,omitempty" yaml:"mountPoints,omitempty"`
 }
 
 // PortMapping maps a host port to a container port, similar to Docker's port publishing.
@@ -95,6 +105,22 @@ type VolumeMount struct {
 	MountPath string `json:"mountPath" yaml:"mountPath"`
 	// ReadOnly makes the mount read-only.
 	ReadOnly bool `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+}
+
+// MountPoint describes an additional Proxmox storage mount point attached
+// to the container (mp0, mp1, …). This maps to the Proxmox "mount point"
+// feature and allows attaching extra storage pools.
+type MountPoint struct {
+	// Storage is the Proxmox storage pool name (e.g. "local-lvm", "cephfs").
+	Storage string `json:"storage" yaml:"storage"`
+	// Size in gigabytes.
+	Size int `json:"size" yaml:"size"`
+	// MountPath inside the container (e.g. "/mnt/data").
+	MountPath string `json:"mountPath" yaml:"mountPath"`
+	// ReadOnly makes the mount point read-only.
+	ReadOnly bool `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	// Backup includes this mount point in backups.
+	Backup bool `json:"backup,omitempty" yaml:"backup,omitempty"`
 }
 
 // Resources defines compute, storage and network resources for a container.
@@ -142,6 +168,8 @@ type Status struct {
 	VMID  int    `json:"vmid,omitempty"   yaml:"vmid,omitempty"`
 	Node  string `json:"node,omitempty"   yaml:"node,omitempty"`
 	IP    string `json:"ip,omitempty"     yaml:"ip,omitempty"`
+	Tags  string `json:"tags,omitempty"   yaml:"tags,omitempty"`
+	Pool  string `json:"pool,omitempty"   yaml:"pool,omitempty"`
 }
 
 // IsOCI returns true if the pod spec uses an OCI image reference.

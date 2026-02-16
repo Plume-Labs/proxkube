@@ -251,3 +251,50 @@ func TestPhaseConstants(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateWithTags(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "tagged-pod"},
+		Spec: PodSpec{
+			Node:  "pve",
+			Image: "nginx:latest",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			Tags:  []string{"web", "production"},
+		},
+	}
+	if err := pod.Validate(); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestValidateWithPool(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "pool-pod"},
+		Spec: PodSpec{
+			Node:  "pve",
+			Image: "nginx:latest",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			Pool:  "web-servers",
+		},
+	}
+	if err := pod.Validate(); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestValidateWithMountPoints(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "storage-pod"},
+		Spec: PodSpec{
+			Node:  "pve",
+			Image: "nginx:latest",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			MountPoints: []MountPoint{
+				{Storage: "cephfs", Size: 10, MountPath: "/mnt/data", Backup: true},
+			},
+		},
+	}
+	if err := pod.Validate(); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}

@@ -174,6 +174,14 @@ type LXCConfig struct {
 	Networks []LXCNetConfig
 	// Environment variables for OCI containers.
 	Environment map[string]string
+	// Tags is a semicolon-separated list of tags visible in the Proxmox dashboard.
+	Tags string
+	// Pool is the Proxmox resource pool to assign this container to.
+	Pool string
+	// Description is the container description/notes shown in the Proxmox dashboard.
+	Description string
+	// MountPoints defines additional storage mount points (mp0, mp1, ...).
+	MountPoints []LXCMountPoint
 }
 
 // LXCNetConfig describes a single network interface for an LXC container.
@@ -183,6 +191,15 @@ type LXCNetConfig struct {
 	IP       string
 	Gateway  string
 	Firewall bool
+}
+
+// LXCMountPoint describes an additional storage mount point for an LXC container.
+type LXCMountPoint struct {
+	Storage   string // Proxmox storage pool name
+	Size      int    // GB
+	MountPath string // path inside the container
+	ReadOnly  bool
+	Backup    bool
 }
 
 // CreateLXC creates an LXC container on the given node.
@@ -263,6 +280,31 @@ func (c *Client) CreateLXC(cfg LXCConfig) (string, error) {
 		}
 	}
 
+	// Tags, pool, description — these fields make containers visible and
+	// organised in the Proxmox dashboard.
+	if cfg.Tags != "" {
+		params["tags"] = cfg.Tags
+	}
+	if cfg.Pool != "" {
+		params["pool"] = cfg.Pool
+	}
+	if cfg.Description != "" {
+		params["description"] = cfg.Description
+	}
+
+	// Additional mount points (mp0, mp1, …).
+	for i, mp := range cfg.MountPoints {
+		mpVal := fmt.Sprintf("%s:%d", mp.Storage, mp.Size)
+		mpVal += ",mp=" + mp.MountPath
+		if mp.ReadOnly {
+			mpVal += ",ro=1"
+		}
+		if mp.Backup {
+			mpVal += ",backup=1"
+		}
+		params[fmt.Sprintf("mp%d", i)] = mpVal
+	}
+
 	body, err := json.Marshal(params)
 	if err != nil {
 		return "", err
@@ -325,15 +367,16 @@ func (c *Client) DeleteLXC(node string, vmid int) (string, error) {
 
 // LXCStatus represents the current status of an LXC container.
 type LXCStatus struct {
-	VMID   int    `json:"vmid"`
-	Status string `json:"status"` // "running", "stopped"
-	Name   string `json:"name"`
-	CPU    float64 `json:"cpu"`
-	Mem    int64  `json:"mem"`
-	MaxMem int64  `json:"maxmem"`
-	Disk   int64  `json:"disk"`
-	MaxDisk int64 `json:"maxdisk"`
-	Uptime int64  `json:"uptime"`
+	VMID    int     `json:"vmid"`
+	Status  string  `json:"status"` // "running", "stopped"
+	Name    string  `json:"name"`
+	CPU     float64 `json:"cpu"`
+	Mem     int64   `json:"mem"`
+	MaxMem  int64   `json:"maxmem"`
+	Disk    int64   `json:"disk"`
+	MaxDisk int64   `json:"maxdisk"`
+	Uptime  int64   `json:"uptime"`
+	Tags    string  `json:"tags"`
 }
 
 // GetLXCStatus returns the current status of the container.
@@ -355,6 +398,7 @@ type LXCSummary struct {
 	VMID   int    `json:"vmid"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
+	Tags   string `json:"tags"`
 }
 
 // ListLXC returns a list of all LXC containers on the given node.

@@ -16,6 +16,9 @@ Compose files.
 - **Network exposure & routing** — control whether pods are exposed externally or kept internal, with port-forwarding rules.
 - **Multi-network support** — attach pods to multiple named networks mapped to Proxmox bridges or SDN zones.
 - **Docker Compose support** — deploy full stacks from `compose.yaml` files with `proxkube compose up`.
+- **Tags & dashboard visibility** — tag containers with custom labels visible in the Proxmox dashboard; auto-generated descriptions and the `proxkube` tag ensure containers are always identifiable.
+- **Resource pool support** — assign containers to Proxmox resource pools for organisation and access control.
+- **Storage mount points** — attach additional Proxmox storage pools as mount points inside containers.
 - **Full LXC lifecycle** — create, start, stop, and delete containers via a single CLI.
 - **Auto VMID allocation** — automatically picks the next available VMID when none is specified.
 - **Dependency ordering** — respects `depends_on` to start pods in the correct order.
@@ -50,6 +53,8 @@ Set the following environment variables to connect to your Proxmox instance:
 | `PROXMOX_NODE` | Default Proxmox node for compose (default: `pve`) |
 | `PROXMOX_STORAGE` | Default storage for compose (default: `local-lvm`) |
 | `PROXMOX_BRIDGE` | Default network bridge for compose (default: `vmbr0`) |
+| `PROXMOX_POOL` | Default resource pool for containers |
+| `PROXMOX_TAGS` | Comma-separated default tags for containers |
 
 ## Usage
 
@@ -73,11 +78,20 @@ spec:
     - name: frontend
       bridge: vmbr0
       ip: dhcp
+  tags:
+    - web
+    - production
+  pool: web-servers
+  description: "NGINX web server"
   resources:
     cpu: 2
     memory: 512
     disk: 8
     storage: local-lvm
+  mountPoints:
+    - storage: local-lvm
+      size: 10
+      mountPath: /mnt/data
 ```
 
 You can also use a traditional LXC template with `osTemplate` instead of `image`:

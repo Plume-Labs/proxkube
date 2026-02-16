@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -52,6 +53,8 @@ Environment variables:
   PROXMOX_NODE       Default Proxmox node (default: pve)
   PROXMOX_STORAGE    Default storage (default: local-lvm)
   PROXMOX_BRIDGE     Default network bridge (default: vmbr0)
+  PROXMOX_POOL       Default resource pool for containers
+  PROXMOX_TAGS       Comma-separated default tags for containers
 `
 
 func main() {
@@ -168,14 +171,18 @@ func runList(args []string) {
 		return
 	}
 
-	fmt.Printf("%-20s %-8s %-10s %-16s\n", "NAME", "VMID", "STATUS", "IP")
+	fmt.Printf("%-20s %-8s %-10s %-16s %-30s\n", "NAME", "VMID", "STATUS", "IP", "TAGS")
 	for _, p := range pods {
 		ip := p.Status.IP
 		if ip == "" {
 			ip = "<none>"
 		}
-		fmt.Printf("%-20s %-8d %-10s %-16s\n",
-			p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip)
+		tags := p.Status.Tags
+		if tags == "" {
+			tags = "<none>"
+		}
+		fmt.Printf("%-20s %-8d %-10s %-16s %-30s\n",
+			p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip, tags)
 	}
 }
 
@@ -259,15 +266,19 @@ func runCompose(subcmd string, args []string) {
 			stackPodNames[p.Metadata.Name] = true
 		}
 		fmt.Printf("Stack: %s\n", stack.Name)
-		fmt.Printf("%-20s %-8s %-10s %-16s\n", "NAME", "VMID", "STATUS", "IP")
+		fmt.Printf("%-20s %-8s %-10s %-16s %-30s\n", "NAME", "VMID", "STATUS", "IP", "TAGS")
 		for _, p := range pods {
 			if stackPodNames[p.Metadata.Name] {
 				ip := p.Status.IP
 				if ip == "" {
 					ip = "<none>"
 				}
-				fmt.Printf("%-20s %-8d %-10s %-16s\n",
-					p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip)
+				tags := p.Status.Tags
+				if tags == "" {
+					tags = "<none>"
+				}
+				fmt.Printf("%-20s %-8d %-10s %-16s %-30s\n",
+					p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip, tags)
 			}
 		}
 
@@ -288,6 +299,17 @@ func composeOptions() compose.ConvertOptions {
 	if bridge := os.Getenv("PROXMOX_BRIDGE"); bridge != "" {
 		opts.DefaultBridge = bridge
 	}
+	if pool := os.Getenv("PROXMOX_POOL"); pool != "" {
+		opts.DefaultPool = pool
+	}
+	if tags := os.Getenv("PROXMOX_TAGS"); tags != "" {
+		for _, t := range strings.Split(tags, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				opts.DefaultTags = append(opts.DefaultTags, t)
+			}
+		}
+	}
 	return opts
 }
 
@@ -298,14 +320,18 @@ func printStack(stack *api.Stack, asJSON bool) {
 		enc.Encode(stack)
 		return
 	}
-	fmt.Printf("%-20s %-8s %-10s %-16s\n", "NAME", "VMID", "STATUS", "IP")
+	fmt.Printf("%-20s %-8s %-10s %-16s %-30s\n", "NAME", "VMID", "STATUS", "IP", "TAGS")
 	for _, p := range stack.Pods {
 		ip := p.Status.IP
 		if ip == "" {
 			ip = "<none>"
 		}
-		fmt.Printf("%-20s %-8d %-10s %-16s\n",
-			p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip)
+		tags := p.Status.Tags
+		if tags == "" {
+			tags = "<none>"
+		}
+		fmt.Printf("%-20s %-8d %-10s %-16s %-30s\n",
+			p.Metadata.Name, p.Status.VMID, p.Status.Phase, ip, tags)
 	}
 }
 

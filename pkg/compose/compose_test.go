@@ -298,3 +298,41 @@ func TestParseVolume(t *testing.T) {
 		t.Errorf("unexpected volume: %+v", vm2)
 	}
 }
+
+func TestToStackWithPoolAndTags(t *testing.T) {
+	path := writeTmpCompose(t, sampleCompose)
+	cf, err := LoadComposeFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opts := DefaultConvertOptions()
+	opts.DefaultPool = "web-pool"
+	opts.DefaultTags = []string{"staging"}
+	stack, err := cf.ToStack("myapp", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, pod := range stack.Pods {
+		if pod.Spec.Pool != "web-pool" {
+			t.Errorf("pod %s: expected pool 'web-pool', got %s", pod.Metadata.Name, pod.Spec.Pool)
+		}
+		foundStaging := false
+		foundName := false
+		for _, tag := range pod.Spec.Tags {
+			if tag == "staging" {
+				foundStaging = true
+			}
+			if tag == pod.Metadata.Name {
+				foundName = true
+			}
+		}
+		if !foundStaging {
+			t.Errorf("pod %s: expected 'staging' tag", pod.Metadata.Name)
+		}
+		if !foundName {
+			t.Errorf("pod %s: expected service name as tag", pod.Metadata.Name)
+		}
+	}
+}

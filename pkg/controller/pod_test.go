@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -513,4 +514,107 @@ func TestDeleteStack(t *testing.T) {
 	if len(m.deleted) != 2 {
 		t.Errorf("expected 2 deletes, got %d", len(m.deleted))
 	}
+}
+
+func TestPodToLXCConfigWithTags(t *testing.T) {
+	pod := testPod()
+	pod.Spec.Tags = []string{"web", "production"}
+	pod.Metadata.Labels = map[string]string{"app": "nginx"}
+	cfg := podToLXCConfig(pod, 170)
+
+	if cfg.Tags == "" {
+		t.Fatal("expected non-empty tags")
+	}
+	// Should contain "proxkube" (auto), "web", "production", and "app=nginx".
+	if !containsTag(cfg.Tags, "proxkube") {
+		t.Errorf("expected 'proxkube' tag, got %s", cfg.Tags)
+	}
+	if !containsTag(cfg.Tags, "web") {
+		t.Errorf("expected 'web' tag, got %s", cfg.Tags)
+	}
+	if !containsTag(cfg.Tags, "production") {
+		t.Errorf("expected 'production' tag, got %s", cfg.Tags)
+	}
+	if !containsTag(cfg.Tags, "app=nginx") {
+		t.Errorf("expected 'app=nginx' tag, got %s", cfg.Tags)
+	}
+}
+
+func TestPodToLXCConfigDefaultTags(t *testing.T) {
+	pod := testPod()
+	cfg := podToLXCConfig(pod, 171)
+
+	// Should always include "proxkube".
+	if !containsTag(cfg.Tags, "proxkube") {
+		t.Errorf("expected 'proxkube' tag, got %s", cfg.Tags)
+	}
+}
+
+func TestPodToLXCConfigWithPool(t *testing.T) {
+	pod := testPod()
+	pod.Spec.Pool = "web-servers"
+	cfg := podToLXCConfig(pod, 172)
+
+	if cfg.Pool != "web-servers" {
+		t.Errorf("expected pool 'web-servers', got %s", cfg.Pool)
+	}
+}
+
+func TestPodToLXCConfigWithDescription(t *testing.T) {
+	pod := testPod()
+	pod.Spec.Description = "My custom description"
+	cfg := podToLXCConfig(pod, 173)
+
+	if cfg.Description != "My custom description" {
+		t.Errorf("expected custom description, got %s", cfg.Description)
+	}
+}
+
+func TestPodToLXCConfigAutoDescription(t *testing.T) {
+	pod := testPod()
+	cfg := podToLXCConfig(pod, 174)
+
+	if cfg.Description == "" {
+		t.Fatal("expected auto-generated description")
+	}
+	if !strings.Contains(cfg.Description, "proxkube") {
+		t.Errorf("expected 'proxkube' in description, got %s", cfg.Description)
+	}
+	if !strings.Contains(cfg.Description, "test-pod") {
+		t.Errorf("expected pod name in description, got %s", cfg.Description)
+	}
+}
+
+func TestPodToLXCConfigWithMountPoints(t *testing.T) {
+	pod := testPod()
+	pod.Spec.MountPoints = []api.MountPoint{
+		{Storage: "cephfs", Size: 10, MountPath: "/mnt/data", Backup: true},
+		{Storage: "local-lvm", Size: 5, MountPath: "/mnt/logs", ReadOnly: true},
+	}
+	cfg := podToLXCConfig(pod, 175)
+
+	if len(cfg.MountPoints) != 2 {
+		t.Fatalf("expected 2 mount points, got %d", len(cfg.MountPoints))
+	}
+	if cfg.MountPoints[0].Storage != "cephfs" || cfg.MountPoints[0].Size != 10 {
+		t.Errorf("unexpected mp0: %+v", cfg.MountPoints[0])
+	}
+	if cfg.MountPoints[0].MountPath != "/mnt/data" {
+		t.Errorf("unexpected mount path: %s", cfg.MountPoints[0].MountPath)
+	}
+	if !cfg.MountPoints[0].Backup {
+		t.Error("expected mp0 backup=true")
+	}
+	if !cfg.MountPoints[1].ReadOnly {
+		t.Error("expected mp1 readonly=true")
+	}
+}
+
+func containsTag(tags, tag string) bool {
+	for _, t := range strings.Split(tags, ";") {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }

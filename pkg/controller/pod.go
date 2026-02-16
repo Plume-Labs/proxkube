@@ -222,6 +222,7 @@ func (pc *PodController) List(node string) ([]api.Pod, error) {
 				VMID:  ct.VMID,
 				Node:  node,
 				Phase: statusToPhase(ct.Status),
+				Tags:  ct.Tags,
 			},
 		}
 		pods = append(pods, p)
@@ -253,6 +254,7 @@ func (pc *PodController) refreshStatus(pod *api.Pod, vmid int) (*api.Pod, error)
 		VMID:  vmid,
 		Node:  pod.Spec.Node,
 		Phase: statusToPhase(status.Status),
+		Tags:  status.Tags,
 	}
 
 	// Try to get the IP address.
@@ -305,9 +307,19 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 		Nameserver:   pod.Spec.Nameserver,
 		SearchDomain: pod.Spec.SearchDomain,
 		Environment:  pod.Spec.Environment,
+		Pool:         pod.Spec.Pool,
+		Description:  pod.Spec.Description,
 	}
 	if pod.Spec.Hostname == "" {
 		cfg.Hostname = pod.Metadata.Name
+	}
+
+	// Build tags string from spec.tags and metadata.labels.
+	cfg.Tags = buildTags(pod)
+
+	// Build a description that includes pod metadata for dashboard visibility.
+	if cfg.Description == "" {
+		cfg.Description = buildDescription(pod)
 	}
 
 	// Build network interfaces from Networks slice, falling back to the
@@ -343,5 +355,62 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 		cfg.Networks = append(cfg.Networks, nc)
 	}
 
+	// Additional mount points (storage pools).
+	for _, mp := range pod.Spec.MountPoints {
+		cfg.MountPoints = append(cfg.MountPoints, proxmox.LXCMountPoint{
+			Storage:   mp.Storage,
+			Size:      mp.Size,
+			MountPath: mp.MountPath,
+			ReadOnly:  mp.ReadOnly,
+			Backup:    mp.Backup,
+		})
+	}
+
 	return cfg
+}
+
+// buildTags constructs a semicolon-separated tag string from spec.tags and
+// metadata.labels. The "proxkube" tag is always included so containers are
+// identifiable on the Proxmox dashboard.
+func buildTags(pod *api.Pod) string {
+	seen := make(map[string]bool)
+	var tags []string
+
+	// Always tag with "proxkube" for dashboard filtering.
+	tags = append(tags, "proxkube")
+	seen["proxkube"] = true
+
+	// Explicit tags from the spec.
+	for _, t := range pod.Spec.Tags {
+		if t != "" && !seen[t] {
+			tags = append(tags, t)
+			seen[t] = true
+		}
+	}
+
+	// Convert metadata labels to tags (key=value format).
+	for k, v := range pod.Metadata.Labels {
+		tag := k + "=" + v
+		if !seen[tag] {
+			tags = append(tags, tag)
+			seen[tag] = true
+		}
+	}
+
+	return strings.Join(tags, ";")
+}
+
+// buildDescription creates a human-readable description for the Proxmox
+// dashboard notes panel.
+func buildDescription(pod *api.Pod) string {
+	desc := fmt.Sprintf("Managed by proxkube\nName: %s", pod.Metadata.Name)
+	if pod.Metadata.Namespace != "" {
+		desc += fmt.Sprintf("\nNamespace: %s", pod.Metadata.Namespace)
+	}
+	if pod.Spec.IsOCI() {
+		desc += fmt.Sprintf("\nImage: %s", pod.Spec.Image)
+	} else if pod.Spec.OSTemplate != "" {
+		desc += fmt.Sprintf("\nTemplate: %s", pod.Spec.OSTemplate)
+	}
+	return desc
 }
