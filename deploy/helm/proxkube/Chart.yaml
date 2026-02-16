@@ -1,0 +1,14 @@
+apiVersion: v2
+name: proxkube
+description: A Helm chart for deploying the proxkube operator that manages Proxmox LXC containers as Kubernetes-like pods
+type: application
+version: 0.4.0
+appVersion: "0.4.0"
+keywords:
+  - proxmox
+  - lxc
+  - kubernetes
+  - operator
+  - containers
+maintainers:
+  - name: GothShoot

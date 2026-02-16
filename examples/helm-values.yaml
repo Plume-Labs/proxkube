@@ -1,0 +1,73 @@
+# Example Helm values file for proxkube
+# Deploy with: proxkube helm install myrelease -f examples/helm-values.yaml
+# Render:      proxkube helm template myrelease -f examples/helm-values.yaml
+
+global:
+  node: pve
+  storage: local-lvm
+  bridge: vmbr0
+  pool: web-pool
+  tags:
+    - production
+
+pods:
+  web:
+    image: nginx:latest
+    expose: true
+    startOnBoot: true
+    ports:
+      - hostPort: 8080
+        containerPort: 80
+    networks:
+      - name: frontend
+        bridge: vmbr0
+        ip: dhcp
+    resources:
+      cpu: 2
+      memory: 1024
+      disk: 10
+    labels:
+      app: nginx
+      tier: frontend
+    dependsOn:
+      - api
+
+  api:
+    image: node:20-slim
+    expose: true
+    ports:
+      - hostPort: 3000
+        containerPort: 3000
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://myuser@db:5432/mydb"
+    resources:
+      cpu: 2
+      memory: 512
+      disk: 8
+    labels:
+      app: api
+      tier: backend
+    dependsOn:
+      - db
+
+  db:
+    image: postgres:16
+    tags:
+      - database
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: mydb
+    mountPoints:
+      - storage: local-lvm
+        size: 20
+        mountPath: /var/lib/postgresql/data
+        backup: true
+    resources:
+      cpu: 2
+      memory: 1024
+      disk: 8
+    labels:
+      app: postgres
+      tier: database

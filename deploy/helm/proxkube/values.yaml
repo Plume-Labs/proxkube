@@ -1,0 +1,45 @@
+# Default values for the proxkube Helm chart.
+
+# Number of operator replicas.
+replicaCount: 1
+
+# Operator image configuration.
+image:
+  repository: ghcr.io/gothshoot/proxkube
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+
+# Proxmox connection settings — these are injected as environment
+# variables into the operator pod.
+proxmox:
+  url: "https://proxmox.example.com:8006"
+  tokenId: ""
+  secret: ""
+  insecure: false
+  node: "pve"
+  storage: "local-lvm"
+  bridge: "vmbr0"
+  pool: ""
+  tags: ""
+
+# Kubernetes namespace for the operator.
+namespace: proxkube-system
+
+# Service account configuration.
+serviceAccount:
+  create: true
+  name: proxkube-operator
+
+# Resource limits for the operator pod.
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Pod-level settings.
+nodeSelector: {}
+tolerations: []
+affinity: {}

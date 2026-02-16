@@ -1,0 +1,29 @@
+# Example ProxKubePod custom resource
+# Apply the CRD first:  proxkube operator crd | kubectl apply -f -
+# Then apply this CR:    kubectl apply -f examples/proxkubepod.yaml
+apiVersion: proxkube.io/v1
+kind: ProxKubePod
+metadata:
+  name: my-nginx
+  namespace: default
+spec:
+  node: pve
+  image: docker.io/library/nginx:latest
+  expose: true
+  pool: web-servers
+  tags:
+    - web
+    - production
+  ports:
+    - hostPort: 8080
+      containerPort: 80
+      protocol: tcp
+  networks:
+    - name: frontend
+      bridge: vmbr0
+      ip: dhcp
+  resources:
+    cpu: 2
+    memory: 512
+    disk: 8
+    storage: local-lvm

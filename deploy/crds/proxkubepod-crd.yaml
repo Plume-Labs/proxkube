@@ -1,0 +1,199 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: proxkubepods.proxkube.io
+spec:
+  group: proxkube.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - node
+                - resources
+              properties:
+                node:
+                  type: string
+                  description: Proxmox node to deploy the container on.
+                vmid:
+                  type: integer
+                  description: Optional Proxmox VMID (auto-assigned if omitted).
+                image:
+                  type: string
+                  description: OCI image reference (Proxmox 9+).
+                osTemplate:
+                  type: string
+                  description: Traditional LXC template path.
+                hostname:
+                  type: string
+                password:
+                  type: string
+                sshPublicKeys:
+                  type: string
+                startOnBoot:
+                  type: boolean
+                unprivileged:
+                  type: boolean
+                nameserver:
+                  type: string
+                searchDomain:
+                  type: string
+                expose:
+                  type: boolean
+                  description: Whether the pod is externally reachable.
+                command:
+                  type: string
+                pool:
+                  type: string
+                  description: Proxmox resource pool.
+                description:
+                  type: string
+                  description: Container description shown in dashboard.
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: Tags visible in the Proxmox dashboard.
+                environment:
+                  type: object
+                  additionalProperties:
+                    type: string
+                dependsOn:
+                  type: array
+                  items:
+                    type: string
+                ports:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPort:
+                        type: integer
+                      containerPort:
+                        type: integer
+                      protocol:
+                        type: string
+                        enum: [tcp, udp]
+                networks:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      bridge:
+                        type: string
+                      ip:
+                        type: string
+                      gateway:
+                        type: string
+                      firewall:
+                        type: boolean
+                volumes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      mountPath:
+                        type: string
+                      readOnly:
+                        type: boolean
+                mountPoints:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      storage:
+                        type: string
+                      size:
+                        type: integer
+                      mountPath:
+                        type: string
+                      readOnly:
+                        type: boolean
+                      backup:
+                        type: boolean
+                resources:
+                  type: object
+                  required:
+                    - cpu
+                    - memory
+                    - disk
+                    - storage
+                  properties:
+                    cpu:
+                      type: integer
+                    memory:
+                      type: integer
+                    swap:
+                      type: integer
+                    disk:
+                      type: integer
+                    storage:
+                      type: string
+                    network:
+                      type: object
+                      properties:
+                        bridge:
+                          type: string
+                        ip:
+                          type: string
+                        gateway:
+                          type: string
+                        firewall:
+                          type: boolean
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Running, Stopped, Failed, Unknown]
+                vmid:
+                  type: integer
+                node:
+                  type: string
+                ip:
+                  type: string
+                tags:
+                  type: string
+                pool:
+                  type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: VMID
+          type: integer
+          jsonPath: .status.vmid
+        - name: Node
+          type: string
+          jsonPath: .status.node
+        - name: IP
+          type: string
+          jsonPath: .status.ip
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: proxkubepods
+    singular: proxkubepod
+    kind: ProxKubePod
+    shortNames:
+      - pkp

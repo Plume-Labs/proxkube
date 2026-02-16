@@ -1,0 +1,39 @@
+/* ProxKube Dashboard Plugin Styles */
+
+/* Status badges */
+.proxkube-status-running {
+    color: #52c41a;
+    font-weight: bold;
+}
+
+.proxkube-status-stopped {
+    color: #8c8c8c;
+}
+
+/* Tag badges */
+.proxkube-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    margin: 1px 2px;
+    border-radius: 3px;
+    font-size: 11px;
+    background-color: #e6f7ff;
+    border: 1px solid #91d5ff;
+    color: #1890ff;
+}
+
+.proxkube-tag-primary {
+    background-color: #f6ffed;
+    border: 1px solid #b7eb8f;
+    color: #52c41a;
+    font-weight: bold;
+}
+
+/* Status icon colors */
+.green {
+    color: #52c41a;
+}
+
+.red {
+    color: #ff4d4f;
+}

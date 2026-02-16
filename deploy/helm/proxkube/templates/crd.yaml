@@ -1,0 +1,101 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: proxkubepods.proxkube.io
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  group: proxkube.io
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [node, resources]
+              properties:
+                node: { type: string }
+                image: { type: string }
+                osTemplate: { type: string }
+                hostname: { type: string }
+                pool: { type: string }
+                description: { type: string }
+                expose: { type: boolean }
+                startOnBoot: { type: boolean }
+                unprivileged: { type: boolean }
+                tags:
+                  type: array
+                  items: { type: string }
+                environment:
+                  type: object
+                  additionalProperties: { type: string }
+                ports:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPort: { type: integer }
+                      containerPort: { type: integer }
+                      protocol: { type: string }
+                networks:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      bridge: { type: string }
+                      ip: { type: string }
+                      gateway: { type: string }
+                mountPoints:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      storage: { type: string }
+                      size: { type: integer }
+                      mountPath: { type: string }
+                resources:
+                  type: object
+                  required: [cpu, memory, disk, storage]
+                  properties:
+                    cpu: { type: integer }
+                    memory: { type: integer }
+                    disk: { type: integer }
+                    storage: { type: string }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+                vmid: { type: integer }
+                node: { type: string }
+                ip: { type: string }
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: VMID
+          type: integer
+          jsonPath: .status.vmid
+        - name: Node
+          type: string
+          jsonPath: .status.node
+        - name: IP
+          type: string
+          jsonPath: .status.ip
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: proxkubepods
+    singular: proxkubepod
+    kind: ProxKubePod
+    shortNames: [pkp]

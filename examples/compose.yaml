@@ -1,0 +1,57 @@
+# Example Docker Compose file for proxkube
+# Deploy with: proxkube compose up -f examples/compose.yaml
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "8080:80"
+    environment:
+      - NGINX_HOST=localhost
+    networks:
+      - frontend
+    depends_on:
+      - api
+    restart: always
+
+  api:
+    image: node:20-slim
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://myuser:secret@db:5432/mydb
+      NODE_ENV: production
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: mydb
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: always
+
+networks:
+  frontend:
+    internal: false
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+          gateway: 10.10.0.1
+
+volumes:
+  db_data: {}
