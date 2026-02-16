@@ -6,7 +6,7 @@ replicaCount: 1
 # Operator image configuration.
 image:
   repository: ghcr.io/gothshoot/proxkube
-  tag: "0.3.0"
+  tag: "0.4.0"
   pullPolicy: IfNotPresent
 
 # Proxmox connection settings — these are injected as environment
