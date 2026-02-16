@@ -144,6 +144,67 @@ func (pc *PodController) Delete(pod *api.Pod) error {
 	return pc.client.WaitForTask(pod.Spec.Node, delTask, pc.taskTimeout)
 }
 
+// ApplyStack creates or updates all pods in a stack, respecting dependsOn order.
+func (pc *PodController) ApplyStack(stack *api.Stack) (*api.Stack, error) {
+	applied := make(map[string]bool)
+	result := &api.Stack{
+		Name:     stack.Name,
+		Networks: stack.Networks,
+		Pods:     make([]api.Pod, 0, len(stack.Pods)),
+	}
+
+	// Iteratively apply pods whose dependencies are already satisfied.
+	remaining := make([]api.Pod, len(stack.Pods))
+	copy(remaining, stack.Pods)
+
+	for len(remaining) > 0 {
+		progress := false
+		var next []api.Pod
+		for i := range remaining {
+			pod := &remaining[i]
+			ready := true
+			for _, dep := range pod.Spec.DependsOn {
+				if !applied[dep] {
+					ready = false
+					break
+				}
+			}
+			if !ready {
+				next = append(next, *pod)
+				continue
+			}
+			res, err := pc.Apply(pod)
+			if err != nil {
+				return nil, fmt.Errorf("apply pod %q in stack %q: %w", pod.Metadata.Name, stack.Name, err)
+			}
+			result.Pods = append(result.Pods, *res)
+			applied[pod.Metadata.Name] = true
+			progress = true
+		}
+		if !progress {
+			names := make([]string, 0, len(next))
+			for _, p := range next {
+				names = append(names, p.Metadata.Name)
+			}
+			return nil, fmt.Errorf("circular or unresolvable dependency among pods: %s", strings.Join(names, ", "))
+		}
+		remaining = next
+	}
+
+	return result, nil
+}
+
+// DeleteStack stops and destroys all pods in a stack (in reverse order).
+func (pc *PodController) DeleteStack(stack *api.Stack) error {
+	for i := len(stack.Pods) - 1; i >= 0; i-- {
+		pod := &stack.Pods[i]
+		if err := pc.Delete(pod); err != nil {
+			return fmt.Errorf("delete pod %q in stack %q: %w", pod.Metadata.Name, stack.Name, err)
+		}
+	}
+	return nil
+}
+
 // List returns all pods on a given node.
 func (pc *PodController) List(node string) ([]api.Pod, error) {
 	containers, err := pc.client.ListLXC(node)
@@ -229,7 +290,8 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 	cfg := proxmox.LXCConfig{
 		Node:         pod.Spec.Node,
 		VMID:         vmid,
-		OSTemplate:   pod.Spec.OSTemplate,
+		OSTemplate:   pod.Spec.EffectiveTemplate(),
+		IsOCI:        pod.Spec.IsOCI(),
 		Hostname:     pod.Spec.Hostname,
 		Cores:        pod.Spec.Resources.CPU,
 		Memory:       pod.Spec.Resources.Memory,
@@ -242,15 +304,44 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 		StartOnBoot:  pod.Spec.StartOnBoot,
 		Nameserver:   pod.Spec.Nameserver,
 		SearchDomain: pod.Spec.SearchDomain,
+		Environment:  pod.Spec.Environment,
 	}
 	if pod.Spec.Hostname == "" {
 		cfg.Hostname = pod.Metadata.Name
 	}
-	if pod.Spec.Resources.Network != nil {
-		cfg.NetBridge = pod.Spec.Resources.Network.Bridge
-		cfg.NetIP = pod.Spec.Resources.Network.IP
-		cfg.NetGateway = pod.Spec.Resources.Network.Gateway
-		cfg.NetFirewall = pod.Spec.Resources.Network.Firewall
+
+	// Build network interfaces from Networks slice, falling back to the
+	// legacy single-interface Resources.Network config.
+	if len(pod.Spec.Networks) > 0 {
+		for i, n := range pod.Spec.Networks {
+			nc := proxmox.LXCNetConfig{
+				Name:     fmt.Sprintf("eth%d", i),
+				Bridge:   n.Bridge,
+				IP:       n.IP,
+				Gateway:  n.Gateway,
+				Firewall: n.Firewall,
+			}
+			// When expose is off (internal-only) and the user has set a
+			// firewall explicitly, keep it; otherwise enable firewall to
+			// block external access.
+			if !pod.Spec.Expose && !n.Firewall {
+				nc.Firewall = true
+			}
+			cfg.Networks = append(cfg.Networks, nc)
+		}
+	} else if pod.Spec.Resources.Network != nil {
+		nc := proxmox.LXCNetConfig{
+			Name:     "eth0",
+			Bridge:   pod.Spec.Resources.Network.Bridge,
+			IP:       pod.Spec.Resources.Network.IP,
+			Gateway:  pod.Spec.Resources.Network.Gateway,
+			Firewall: pod.Spec.Resources.Network.Firewall,
+		}
+		if !pod.Spec.Expose && !nc.Firewall {
+			nc.Firewall = true
+		}
+		cfg.Networks = append(cfg.Networks, nc)
 	}
+
 	return cfg
 }

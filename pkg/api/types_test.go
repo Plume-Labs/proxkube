@@ -23,6 +23,59 @@ func TestValidateSuccess(t *testing.T) {
 	}
 }
 
+func TestValidateOCIImage(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "oci-pod"},
+		Spec: PodSpec{
+			Node:  "pve",
+			Image: "docker.io/library/nginx:latest",
+			Resources: Resources{
+				CPU:     1,
+				Memory:  256,
+				Disk:    4,
+				Storage: "local-lvm",
+			},
+		},
+	}
+	if err := pod.Validate(); err != nil {
+		t.Fatalf("expected no error for OCI image, got %v", err)
+	}
+	if !pod.Spec.IsOCI() {
+		t.Error("expected IsOCI() to return true")
+	}
+	if pod.Spec.EffectiveTemplate() != "docker.io/library/nginx:latest" {
+		t.Errorf("expected OCI image reference, got %s", pod.Spec.EffectiveTemplate())
+	}
+}
+
+func TestValidateNoImageOrTemplate(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "x"},
+		Spec: PodSpec{
+			Node:      "pve",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+		},
+	}
+	err := pod.Validate()
+	if err == nil {
+		t.Fatal("expected error for missing image/template")
+	}
+	ve := err.(*ValidationError)
+	if ve.Field != "spec.image" {
+		t.Errorf("expected field spec.image, got %s", ve.Field)
+	}
+}
+
+func TestEffectiveTemplateOSTemplate(t *testing.T) {
+	spec := &PodSpec{OSTemplate: "local:vztmpl/ubuntu.tar.zst"}
+	if spec.EffectiveTemplate() != "local:vztmpl/ubuntu.tar.zst" {
+		t.Errorf("unexpected template: %s", spec.EffectiveTemplate())
+	}
+	if spec.IsOCI() {
+		t.Error("expected IsOCI() to return false for OS template")
+	}
+}
+
 func TestValidateEmptyName(t *testing.T) {
 	pod := &Pod{
 		Metadata: Metadata{Name: ""},
@@ -61,25 +114,6 @@ func TestValidateEmptyNode(t *testing.T) {
 	ve := err.(*ValidationError)
 	if ve.Field != "spec.node" {
 		t.Errorf("expected field spec.node, got %s", ve.Field)
-	}
-}
-
-func TestValidateEmptyOSTemplate(t *testing.T) {
-	pod := &Pod{
-		Metadata: Metadata{Name: "x"},
-		Spec: PodSpec{
-			Node:       "pve",
-			OSTemplate: "",
-			Resources:  Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
-		},
-	}
-	err := pod.Validate()
-	if err == nil {
-		t.Fatal("expected error for empty osTemplate")
-	}
-	ve := err.(*ValidationError)
-	if ve.Field != "spec.osTemplate" {
-		t.Errorf("expected field spec.osTemplate, got %s", ve.Field)
 	}
 }
 
@@ -156,6 +190,55 @@ func TestValidateEmptyStorage(t *testing.T) {
 	ve := err.(*ValidationError)
 	if ve.Field != "spec.resources.storage" {
 		t.Errorf("expected field spec.resources.storage, got %s", ve.Field)
+	}
+}
+
+func TestValidatePorts(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "x"},
+		Spec: PodSpec{
+			Node:       "pve",
+			Image:      "nginx:latest",
+			Resources:  Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			Ports: []PortMapping{
+				{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"},
+			},
+		},
+	}
+	if err := pod.Validate(); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestValidatePortInvalidContainer(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "x"},
+		Spec: PodSpec{
+			Node:      "pve",
+			Image:     "nginx:latest",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			Ports:     []PortMapping{{HostPort: 8080, ContainerPort: 0}},
+		},
+	}
+	err := pod.Validate()
+	if err == nil {
+		t.Fatal("expected error for zero container port")
+	}
+}
+
+func TestValidatePortInvalidProtocol(t *testing.T) {
+	pod := &Pod{
+		Metadata: Metadata{Name: "x"},
+		Spec: PodSpec{
+			Node:      "pve",
+			Image:     "nginx:latest",
+			Resources: Resources{CPU: 1, Memory: 256, Disk: 4, Storage: "local-lvm"},
+			Ports:     []PortMapping{{HostPort: 80, ContainerPort: 80, Protocol: "sctp"}},
+		},
+	}
+	err := pod.Validate()
+	if err == nil {
+		t.Fatal("expected error for invalid protocol")
 	}
 }
 

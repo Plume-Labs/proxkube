@@ -8,17 +8,26 @@ metadata:
     env: production
 spec:
   node: pve
-  osTemplate: "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
+  # Use Proxmox 9 OCI image (alternatively use osTemplate for classic LXC templates)
+  image: docker.io/library/nginx:latest
   hostname: my-web-server
   unprivileged: true
   startOnBoot: true
   nameserver: "8.8.8.8"
+  # Expose the pod externally with port forwarding
+  expose: true
+  ports:
+    - hostPort: 8080
+      containerPort: 80
+      protocol: tcp
+  # Multi-network support
+  networks:
+    - name: frontend
+      bridge: vmbr0
+      ip: dhcp
   resources:
     cpu: 2
     memory: 512
     swap: 256
     disk: 8
     storage: local-lvm
-    network:
-      bridge: vmbr0
-      ip: dhcp

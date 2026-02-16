@@ -153,6 +153,7 @@ type LXCConfig struct {
 	Node         string
 	VMID         int
 	OSTemplate   string
+	IsOCI        bool // true when OSTemplate is an OCI image reference
 	Hostname     string
 	Cores        int
 	Memory       int // MB
@@ -169,6 +170,19 @@ type LXCConfig struct {
 	StartOnBoot  bool
 	Nameserver   string
 	SearchDomain string
+	// Networks allows specifying multiple named network interfaces (net0, net1, ...).
+	Networks []LXCNetConfig
+	// Environment variables for OCI containers.
+	Environment map[string]string
+}
+
+// LXCNetConfig describes a single network interface for an LXC container.
+type LXCNetConfig struct {
+	Name     string // interface name inside container (e.g. "eth0")
+	Bridge   string
+	IP       string
+	Gateway  string
+	Firewall bool
 }
 
 // CreateLXC creates an LXC container on the given node.
@@ -207,22 +221,46 @@ func (c *Client) CreateLXC(cfg LXCConfig) (string, error) {
 		params["searchdomain"] = cfg.SearchDomain
 	}
 
-	// Build network config string
-	netParts := []string{"name=eth0"}
-	if cfg.NetBridge != "" {
-		netParts = append(netParts, "bridge="+cfg.NetBridge)
-	}
-	if cfg.NetIP != "" {
-		netParts = append(netParts, "ip="+cfg.NetIP)
-	}
-	if cfg.NetGateway != "" {
-		netParts = append(netParts, "gw="+cfg.NetGateway)
-	}
-	if cfg.NetFirewall {
-		netParts = append(netParts, "firewall=1")
-	}
-	if len(netParts) > 1 {
-		params["net0"] = strings.Join(netParts, ",")
+	// Build network interfaces. Prefer the Networks slice; fall back to
+	// the legacy single-interface fields.
+	if len(cfg.Networks) > 0 {
+		for i, net := range cfg.Networks {
+			ifName := net.Name
+			if ifName == "" {
+				ifName = fmt.Sprintf("eth%d", i)
+			}
+			parts := []string{"name=" + ifName}
+			if net.Bridge != "" {
+				parts = append(parts, "bridge="+net.Bridge)
+			}
+			if net.IP != "" {
+				parts = append(parts, "ip="+net.IP)
+			}
+			if net.Gateway != "" {
+				parts = append(parts, "gw="+net.Gateway)
+			}
+			if net.Firewall {
+				parts = append(parts, "firewall=1")
+			}
+			params[fmt.Sprintf("net%d", i)] = strings.Join(parts, ",")
+		}
+	} else {
+		netParts := []string{"name=eth0"}
+		if cfg.NetBridge != "" {
+			netParts = append(netParts, "bridge="+cfg.NetBridge)
+		}
+		if cfg.NetIP != "" {
+			netParts = append(netParts, "ip="+cfg.NetIP)
+		}
+		if cfg.NetGateway != "" {
+			netParts = append(netParts, "gw="+cfg.NetGateway)
+		}
+		if cfg.NetFirewall {
+			netParts = append(netParts, "firewall=1")
+		}
+		if len(netParts) > 1 {
+			params["net0"] = strings.Join(netParts, ",")
+		}
 	}
 
 	body, err := json.Marshal(params)
