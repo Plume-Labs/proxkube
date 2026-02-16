@@ -17,6 +17,8 @@
 //	proxkube helm     template <release> -f values.yaml  Render manifests
 //	proxkube helm     uninstall <release> --node <node>  Remove a release
 //	proxkube operator crd                  Print the CRD manifest
+//	proxkube exec     <vmid> -- <command>  Execute a command inside a container
+//	proxkube plugin   install              Install the PVE dashboard plugin
 package main
 
 import (
@@ -25,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -33,6 +36,7 @@ import (
 	"github.com/GothShoot/proxkube/pkg/compose"
 	"github.com/GothShoot/proxkube/pkg/controller"
 	helmPkg "github.com/GothShoot/proxkube/pkg/helm"
+	"github.com/GothShoot/proxkube/pkg/hypervisor"
 	"github.com/GothShoot/proxkube/pkg/operator"
 	"github.com/GothShoot/proxkube/pkg/proxmox"
 )
@@ -55,6 +59,9 @@ Usage:
 
   proxkube operator crd              Print the ProxKubePod CRD manifest
 
+  proxkube exec <vmid> -- <command>  Execute a command inside a container (local mode)
+  proxkube plugin install            Install the PVE dashboard plugin
+
 Environment variables:
   PROXMOX_URL        Proxmox API URL (e.g. https://proxmox:8006)
   PROXMOX_TOKEN_ID   API token ID (e.g. root@pam!mytoken)
@@ -68,6 +75,10 @@ Environment variables:
   PROXMOX_BRIDGE     Default network bridge (default: vmbr0)
   PROXMOX_POOL       Default resource pool for containers
   PROXMOX_TAGS       Comma-separated default tags for containers
+
+  PROXMOX_LOCAL      Set to "true" to use low-level hypervisor communication
+                     (Unix socket + pct CLI) instead of the REST API.
+                     Only works when running directly on the Proxmox host.
 `
 
 func main() {
@@ -101,10 +112,18 @@ func main() {
 			os.Exit(1)
 		}
 		runOperator(os.Args[2], os.Args[3:])
+	case "exec":
+		runExec(os.Args[2:])
+	case "plugin":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "error: plugin requires a subcommand (install, uninstall)")
+			os.Exit(1)
+		}
+		runPlugin(os.Args[2])
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Println("proxkube v0.3.0")
+		fmt.Println("proxkube v0.4.0")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", command, usage)
 		os.Exit(1)
@@ -361,6 +380,19 @@ func printStack(stack *api.Stack, asJSON bool) {
 }
 
 func buildController() (*controller.PodController, error) {
+	// When PROXMOX_LOCAL=true, use the low-level hypervisor backend
+	// (Unix socket + pct CLI) for direct host communication.
+	if os.Getenv("PROXMOX_LOCAL") == "true" {
+		hvCfg := hypervisor.Config{
+			Node: os.Getenv("PROXMOX_NODE"),
+		}
+		hv, err := hypervisor.NewClient(hvCfg)
+		if err != nil {
+			return nil, fmt.Errorf("connect to hypervisor: %w", err)
+		}
+		return controller.NewPodController(hv), nil
+	}
+
 	cfg := proxmox.Config{
 		BaseURL:            os.Getenv("PROXMOX_URL"),
 		TokenID:            os.Getenv("PROXMOX_TOKEN_ID"),
@@ -535,6 +567,95 @@ func runOperator(subcmd string, args []string) {
 		fmt.Print(operator.CRDManifest())
 	default:
 		fmt.Fprintf(os.Stderr, "unknown operator subcommand: %s (use crd)\n", subcmd)
+		os.Exit(1)
+	}
+}
+
+func runExec(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "error: exec requires a VMID (proxkube exec <vmid> -- <command>)")
+		os.Exit(1)
+	}
+
+	vmid, err := strconv.Atoi(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: invalid VMID %q: %v\n", args[0], err)
+		os.Exit(1)
+	}
+
+	// Find the "--" separator.
+	var command []string
+	for i, arg := range args {
+		if arg == "--" && i+1 < len(args) {
+			command = args[i+1:]
+			break
+		}
+	}
+
+	if len(command) == 0 {
+		fmt.Fprintln(os.Stderr, "error: exec requires a command after -- (proxkube exec <vmid> -- <command>)")
+		os.Exit(1)
+	}
+
+	hvCfg := hypervisor.Config{
+		Node: os.Getenv("PROXMOX_NODE"),
+	}
+	hv, err := hypervisor.NewClient(hvCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	out, err := hv.Exec(vmid, command)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(out)
+}
+
+const pluginInstallScript = `#!/bin/sh
+set -e
+
+PVE_SHARE="/usr/share/pve-manager"
+PLUGIN_DIR="$PVE_SHARE/proxkube"
+PERL_DIR="/usr/share/perl5/PVE/API2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEPLOY_DIR="$SCRIPT_DIR/deploy/pve-plugin"
+
+if [ ! -d "$DEPLOY_DIR" ]; then
+    DEPLOY_DIR="$(dirname "$0")/../deploy/pve-plugin"
+fi
+
+echo "==> Installing ProxKube dashboard plugin"
+install -d "$PLUGIN_DIR"
+install -m 0644 "$DEPLOY_DIR/ProxKubePanel.js" "$PLUGIN_DIR/"
+install -m 0644 "$DEPLOY_DIR/proxkube.css"     "$PLUGIN_DIR/"
+install -m 0644 "$DEPLOY_DIR/ProxKube.pm"      "$PERL_DIR/ProxKube.pm"
+echo "==> Restarting PVE services"
+systemctl restart pvedaemon pveproxy
+echo "==> ProxKube plugin installed. Reload the web interface."
+`
+
+func runPlugin(subcmd string) {
+	switch subcmd {
+	case "install":
+		fmt.Println("To install the ProxKube PVE dashboard plugin, run the following on your Proxmox host:")
+		fmt.Println()
+		fmt.Println("  cd /path/to/proxkube")
+		fmt.Println("  make -C deploy/pve-plugin install")
+		fmt.Println()
+		fmt.Println("Or manually:")
+		fmt.Println("  cp deploy/pve-plugin/ProxKubePanel.js /usr/share/pve-manager/proxkube/")
+		fmt.Println("  cp deploy/pve-plugin/proxkube.css      /usr/share/pve-manager/proxkube/")
+		fmt.Println("  cp deploy/pve-plugin/ProxKube.pm       /usr/share/perl5/PVE/API2/")
+		fmt.Println("  systemctl restart pvedaemon pveproxy")
+	case "uninstall":
+		fmt.Println("To uninstall the ProxKube PVE dashboard plugin:")
+		fmt.Println()
+		fmt.Println("  make -C deploy/pve-plugin uninstall")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown plugin subcommand: %s (use install or uninstall)\n", subcmd)
 		os.Exit(1)
 	}
 }

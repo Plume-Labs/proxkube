@@ -5,9 +5,11 @@ Orchestrate Proxmox LXC containers as Kubernetes-like pods.
 `proxkube` is a CLI tool that lets you manage Proxmox VE LXC containers using
 familiar Kubernetes pod concepts — declare your desired state in a YAML manifest
 and let proxkube handle creation, start-up, status, and teardown through the
-Proxmox REST API. It supports Proxmox 9 OCI images, multi-network
-configurations, port exposure rules, deploying full stacks from Docker Compose
-files, Kubernetes operator compatibility (CRD), and Helm chart deployments.
+Proxmox REST API or low-level hypervisor communication. It supports Proxmox 9
+OCI images, multi-network configurations, port exposure rules, deploying full
+stacks from Docker Compose files, Kubernetes operator compatibility (CRD), Helm
+chart deployments, a Proxmox VE dashboard plugin, and direct hypervisor
+communication via Unix sockets and the `pct` CLI.
 
 ## Features
 
@@ -18,6 +20,9 @@ files, Kubernetes operator compatibility (CRD), and Helm chart deployments.
 - **Docker Compose support** — deploy full stacks from `compose.yaml` files with `proxkube compose up`.
 - **Kubernetes operator compatibility** — `ProxKubePod` CRD lets you manage Proxmox LXC containers from Kubernetes using `kubectl`.
 - **Helm chart support** — deploy from Helm values files with `proxkube helm install`, or install the operator into K8s with the bundled Helm chart.
+- **Proxmox VE dashboard plugin** — web UI plugin that adds a "ProxKube Pods" panel to the Proxmox dashboard, showing all proxkube-managed containers with status, tags, resources, and lifecycle controls (start/stop/delete).
+- **Low-level hypervisor communication** — `pkg/hypervisor` communicates directly with the PVE daemon via its Unix socket (`/var/run/pvedaemon/socket`) and uses the `pct` CLI for LXC operations, bypassing the REST API for maximum performance on the host.
+- **Container exec** — run commands inside containers via `proxkube exec <vmid> -- <command>` using low-level `pct exec`.
 - **Tags & dashboard visibility** — tag containers with custom labels visible in the Proxmox dashboard; auto-generated descriptions and the `proxkube` tag ensure containers are always identifiable.
 - **Resource pool support** — assign containers to Proxmox resource pools for organisation and access control.
 - **Storage mount points** — attach additional Proxmox storage pools as mount points inside containers.
@@ -57,6 +62,7 @@ Set the following environment variables to connect to your Proxmox instance:
 | `PROXMOX_BRIDGE` | Default network bridge for compose (default: `vmbr0`) |
 | `PROXMOX_POOL` | Default resource pool for containers |
 | `PROXMOX_TAGS` | Comma-separated default tags for containers |
+| `PROXMOX_LOCAL` | Set to `true` to use low-level hypervisor communication (Unix socket + pct CLI) instead of the REST API. Only works on the Proxmox host. |
 
 ## Usage
 
@@ -280,19 +286,72 @@ helm upgrade proxkube deploy/helm/proxkube/
 helm uninstall proxkube
 ```
 
+### PVE Dashboard Plugin
+
+proxkube includes a Proxmox VE dashboard plugin that adds a "ProxKube Pods"
+panel to the web interface. The plugin shows all proxkube-managed containers
+(filtered by the `proxkube` tag) with real-time status, CPU/memory metrics,
+tags, IPs, and lifecycle controls (start, stop, delete).
+
+Install the plugin on your Proxmox host:
+
+```bash
+# Using the Makefile
+make -C deploy/pve-plugin install
+
+# Or manually
+cp deploy/pve-plugin/ProxKubePanel.js /usr/share/pve-manager/proxkube/
+cp deploy/pve-plugin/proxkube.css      /usr/share/pve-manager/proxkube/
+cp deploy/pve-plugin/ProxKube.pm       /usr/share/perl5/PVE/API2/
+systemctl restart pvedaemon pveproxy
+```
+
+Then reload the Proxmox web interface. The "ProxKube Pods" panel will appear
+in the datacenter view.
+
+### Low-Level Hypervisor Mode
+
+When running directly on the Proxmox host, proxkube can bypass the REST API
+and communicate with the hypervisor at a lower level:
+
+- **PVE daemon Unix socket** (`/var/run/pvedaemon/socket`) for read operations
+  (listing containers, getting status, fetching next VMID)
+- **`pct` CLI** for write operations (create, start, stop, destroy containers)
+
+Enable this mode by setting `PROXMOX_LOCAL=true`:
+
+```bash
+export PROXMOX_LOCAL=true
+proxkube apply -f pod.yaml   # Uses pct + Unix socket instead of REST API
+proxkube list --node pve     # Reads directly from PVE daemon socket
+```
+
+### Execute Commands Inside Containers
+
+Run commands inside a running container using `proxkube exec`:
+
+```bash
+proxkube exec 100 -- ls -la /
+proxkube exec 100 -- cat /etc/hostname
+```
+
+This uses `pct exec` under the hood and requires running on the Proxmox host.
+
 ## Project Structure
 
 ```
-cmd/proxkube/         CLI entrypoint
-pkg/api/              Pod & Stack data models, validation
-pkg/proxmox/          Proxmox VE REST API client
-pkg/controller/       Pod lifecycle & stack orchestration controller
-pkg/compose/          Docker Compose file parser & converter
-pkg/helm/             Helm values parser & converter
-pkg/operator/         Kubernetes operator reconciler & CRD
-deploy/crds/          Kubernetes CRD YAML
-deploy/helm/proxkube/ Helm chart for deploying the operator into K8s
-examples/             Example YAML manifests, compose & Helm values files
+cmd/proxkube/           CLI entrypoint
+pkg/api/                Pod & Stack data models, validation
+pkg/proxmox/            Proxmox VE REST API client
+pkg/hypervisor/         Low-level hypervisor client (Unix socket + pct CLI)
+pkg/controller/         Pod lifecycle & stack orchestration controller
+pkg/compose/            Docker Compose file parser & converter
+pkg/helm/               Helm values parser & converter
+pkg/operator/           Kubernetes operator reconciler & CRD
+deploy/crds/            Kubernetes CRD YAML
+deploy/helm/proxkube/   Helm chart for deploying the operator into K8s
+deploy/pve-plugin/      Proxmox VE dashboard plugin (JS + CSS + Perl)
+examples/               Example YAML manifests, compose & Helm values files
 ```
 
 ## Testing
