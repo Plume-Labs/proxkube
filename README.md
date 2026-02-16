@@ -6,8 +6,8 @@ Orchestrate Proxmox LXC containers as Kubernetes-like pods.
 familiar Kubernetes pod concepts — declare your desired state in a YAML manifest
 and let proxkube handle creation, start-up, status, and teardown through the
 Proxmox REST API. It supports Proxmox 9 OCI images, multi-network
-configurations, port exposure rules, and deploying full stacks from Docker
-Compose files.
+configurations, port exposure rules, deploying full stacks from Docker Compose
+files, Kubernetes operator compatibility (CRD), and Helm chart deployments.
 
 ## Features
 
@@ -16,6 +16,8 @@ Compose files.
 - **Network exposure & routing** — control whether pods are exposed externally or kept internal, with port-forwarding rules.
 - **Multi-network support** — attach pods to multiple named networks mapped to Proxmox bridges or SDN zones.
 - **Docker Compose support** — deploy full stacks from `compose.yaml` files with `proxkube compose up`.
+- **Kubernetes operator compatibility** — `ProxKubePod` CRD lets you manage Proxmox LXC containers from Kubernetes using `kubectl`.
+- **Helm chart support** — deploy from Helm values files with `proxkube helm install`, or install the operator into K8s with the bundled Helm chart.
 - **Tags & dashboard visibility** — tag containers with custom labels visible in the Proxmox dashboard; auto-generated descriptions and the `proxkube` tag ensure containers are always identifiable.
 - **Resource pool support** — assign containers to Proxmox resource pools for organisation and access control.
 - **Storage mount points** — attach additional Proxmox storage pools as mount points inside containers.
@@ -166,6 +168,118 @@ volumes:
   db_data: {}
 ```
 
+### Deploy from Helm values
+
+proxkube supports Helm-style deployments using a `values.yaml` file that defines
+pods, resources, networks, and dependencies.
+
+```bash
+# Deploy pods from Helm values
+proxkube helm install myrelease -f examples/helm-values.yaml
+
+# Render manifests without deploying (like helm template)
+proxkube helm template myrelease -f examples/helm-values.yaml
+
+# Remove all pods from a release
+proxkube helm uninstall myrelease --node pve
+```
+
+Example `helm-values.yaml`:
+
+```yaml
+global:
+  node: pve
+  storage: local-lvm
+  pool: web-pool
+  tags: [production]
+
+pods:
+  web:
+    image: nginx:latest
+    expose: true
+    ports:
+      - hostPort: 8080
+        containerPort: 80
+    resources:
+      cpu: 2
+      memory: 1024
+      disk: 10
+    dependsOn: [api]
+
+  api:
+    image: node:20-slim
+    resources:
+      cpu: 2
+      memory: 512
+      disk: 8
+    dependsOn: [db]
+
+  db:
+    image: postgres:16
+    mountPoints:
+      - storage: local-lvm
+        size: 20
+        mountPath: /var/lib/postgresql/data
+        backup: true
+```
+
+### Kubernetes Operator (CRD)
+
+proxkube provides a Kubernetes CRD (`ProxKubePod`) so you can manage Proxmox LXC
+containers using `kubectl` and standard Kubernetes operators.
+
+```bash
+# Print the CRD manifest (apply it to your K8s cluster)
+proxkube operator crd | kubectl apply -f -
+
+# Then create ProxKubePod resources
+kubectl apply -f examples/proxkubepod.yaml
+kubectl get proxkubepods
+kubectl get pkp   # short name
+```
+
+Example `ProxKubePod` resource:
+
+```yaml
+apiVersion: proxkube.io/v1
+kind: ProxKubePod
+metadata:
+  name: my-nginx
+spec:
+  node: pve
+  image: docker.io/library/nginx:latest
+  expose: true
+  pool: web-servers
+  tags: [web, production]
+  ports:
+    - hostPort: 8080
+      containerPort: 80
+  resources:
+    cpu: 2
+    memory: 512
+    disk: 8
+    storage: local-lvm
+```
+
+### Helm Chart (deploy the operator into K8s)
+
+A Helm chart is provided in `deploy/helm/proxkube/` to install the proxkube
+operator into a Kubernetes cluster.
+
+```bash
+# Install the operator with Helm
+helm install proxkube deploy/helm/proxkube/ \
+  --set proxmox.url=https://proxmox:8006 \
+  --set proxmox.tokenId=root@pam!mytoken \
+  --set proxmox.secret=my-secret
+
+# Upgrade
+helm upgrade proxkube deploy/helm/proxkube/
+
+# Uninstall
+helm uninstall proxkube
+```
+
 ## Project Structure
 
 ```
@@ -174,7 +288,11 @@ pkg/api/              Pod & Stack data models, validation
 pkg/proxmox/          Proxmox VE REST API client
 pkg/controller/       Pod lifecycle & stack orchestration controller
 pkg/compose/          Docker Compose file parser & converter
-examples/             Example YAML manifests & compose files
+pkg/helm/             Helm values parser & converter
+pkg/operator/         Kubernetes operator reconciler & CRD
+deploy/crds/          Kubernetes CRD YAML
+deploy/helm/proxkube/ Helm chart for deploying the operator into K8s
+examples/             Example YAML manifests, compose & Helm values files
 ```
 
 ## Testing

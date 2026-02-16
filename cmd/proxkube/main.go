@@ -1,7 +1,8 @@
 // proxkube orchestrates Proxmox LXC containers using a Kubernetes-like pod
 // abstraction. It reads YAML manifests and drives the Proxmox API to create,
 // start, stop, list, and delete containers. Supports both traditional LXC
-// templates and Proxmox 9 OCI images, as well as Docker Compose files.
+// templates and Proxmox 9 OCI images, Docker Compose files, Kubernetes
+// operators (CRD), and Helm charts.
 //
 // Usage:
 //
@@ -12,6 +13,10 @@
 //	proxkube compose  up   -f compose.yaml   Deploy a stack
 //	proxkube compose  down -f compose.yaml   Tear down a stack
 //	proxkube compose  ps   -f compose.yaml   Show stack status
+//	proxkube helm     install <release> -f values.yaml   Deploy from Helm values
+//	proxkube helm     template <release> -f values.yaml  Render manifests
+//	proxkube helm     uninstall <release> --node <node>  Remove a release
+//	proxkube operator crd                  Print the CRD manifest
 package main
 
 import (
@@ -27,6 +32,8 @@ import (
 	"github.com/GothShoot/proxkube/pkg/api"
 	"github.com/GothShoot/proxkube/pkg/compose"
 	"github.com/GothShoot/proxkube/pkg/controller"
+	helmPkg "github.com/GothShoot/proxkube/pkg/helm"
+	"github.com/GothShoot/proxkube/pkg/operator"
 	"github.com/GothShoot/proxkube/pkg/proxmox"
 )
 
@@ -41,6 +48,12 @@ Usage:
   proxkube compose up   -f <compose.yaml>  Deploy a stack from a Compose file
   proxkube compose down -f <compose.yaml>  Tear down a stack
   proxkube compose ps   -f <compose.yaml>  Show stack pod status
+
+  proxkube helm install   <release> -f <values.yaml>  Deploy from Helm values
+  proxkube helm template  <release> -f <values.yaml>  Render pod manifests
+  proxkube helm uninstall <release> --node <node>      Remove a Helm release
+
+  proxkube operator crd              Print the ProxKubePod CRD manifest
 
 Environment variables:
   PROXMOX_URL        Proxmox API URL (e.g. https://proxmox:8006)
@@ -76,10 +89,22 @@ func main() {
 			os.Exit(1)
 		}
 		runCompose(os.Args[2], os.Args[3:])
+	case "helm":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "error: helm requires a subcommand (install, template, uninstall)")
+			os.Exit(1)
+		}
+		runHelm(os.Args[2], os.Args[3:])
+	case "operator":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "error: operator requires a subcommand (crd)")
+			os.Exit(1)
+		}
+		runOperator(os.Args[2], os.Args[3:])
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Println("proxkube v0.2.0")
+		fmt.Println("proxkube v0.3.0")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", command, usage)
 		os.Exit(1)
@@ -362,4 +387,154 @@ func printPod(pod *api.Pod, asJSON bool) {
 	enc := yaml.NewEncoder(os.Stdout)
 	enc.SetIndent(2)
 	enc.Encode(pod)
+}
+
+func runHelm(subcmd string, args []string) {
+	switch subcmd {
+	case "install":
+		runHelmInstall(args)
+	case "template":
+		runHelmTemplate(args)
+	case "uninstall":
+		runHelmUninstall(args)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown helm subcommand: %s (use install, template, or uninstall)\n", subcmd)
+		os.Exit(1)
+	}
+}
+
+func runHelmInstall(args []string) {
+	fs := flag.NewFlagSet("helm install", flag.ExitOnError)
+	filePath := fs.String("f", "values.yaml", "Path to values.yaml")
+	outputJSON := fs.Bool("json", false, "Output as JSON")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "error: release name is required (proxkube helm install <release> -f values.yaml)")
+		os.Exit(1)
+	}
+	releaseName := fs.Arg(0)
+
+	vals, err := helmPkg.LoadValues(*filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	stack, err := vals.ToStack(releaseName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctrl, err := buildController()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	result, err := ctrl.ApplyStack(stack)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "release/%s installed (%d pods)\n", releaseName, len(result.Pods))
+	printStack(result, *outputJSON)
+}
+
+func runHelmTemplate(args []string) {
+	fs := flag.NewFlagSet("helm template", flag.ExitOnError)
+	filePath := fs.String("f", "values.yaml", "Path to values.yaml")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "error: release name is required (proxkube helm template <release> -f values.yaml)")
+		os.Exit(1)
+	}
+	releaseName := fs.Arg(0)
+
+	vals, err := helmPkg.LoadValues(*filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	output, err := helmPkg.RenderTemplate(releaseName, vals)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(output)
+}
+
+func runHelmUninstall(args []string) {
+	fs := flag.NewFlagSet("helm uninstall", flag.ExitOnError)
+	node := fs.String("node", "", "Proxmox node name")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "error: release name is required (proxkube helm uninstall <release> --node <node>)")
+		os.Exit(1)
+	}
+	releaseName := fs.Arg(0)
+
+	if *node == "" {
+		*node = os.Getenv("PROXMOX_NODE")
+		if *node == "" {
+			*node = "pve"
+		}
+	}
+
+	ctrl, err := buildController()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// List all pods and find those tagged with this release.
+	pods, err := ctrl.List(*node)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	releaseTag := "helm-release=" + releaseName
+	var toDelete []api.Pod
+	for _, p := range pods {
+		if strings.Contains(p.Status.Tags, releaseTag) ||
+			strings.HasPrefix(p.Metadata.Name, releaseName+"-") {
+			toDelete = append(toDelete, p)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		fmt.Fprintf(os.Stderr, "no pods found for release %q\n", releaseName)
+		return
+	}
+
+	stack := &api.Stack{Name: releaseName, Pods: toDelete}
+	if err := ctrl.DeleteStack(stack); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "release/%s uninstalled (%d pods removed)\n", releaseName, len(toDelete))
+}
+
+func runOperator(subcmd string, args []string) {
+	switch subcmd {
+	case "crd":
+		fmt.Print(operator.CRDManifest())
+	default:
+		fmt.Fprintf(os.Stderr, "unknown operator subcommand: %s (use crd)\n", subcmd)
+		os.Exit(1)
+	}
 }
