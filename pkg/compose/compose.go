@@ -395,14 +395,24 @@ func applyResources(pod *api.Pod, res *DeployResources, opts ConvertOptions) {
 func parseMemoryMB(s string, defaultMB int) int {
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
-	if strings.HasSuffix(s, "g") || strings.HasSuffix(s, "gb") {
-		num := strings.TrimRight(s, "gb")
+	if strings.HasSuffix(s, "gb") {
+		num := strings.TrimSuffix(s, "gb")
+		if v, err := strconv.ParseFloat(strings.TrimSpace(num), 64); err == nil {
+			return int(v * 1024)
+		}
+	} else if strings.HasSuffix(s, "g") {
+		num := strings.TrimSuffix(s, "g")
 		if v, err := strconv.ParseFloat(strings.TrimSpace(num), 64); err == nil {
 			return int(v * 1024)
 		}
 	}
-	if strings.HasSuffix(s, "m") || strings.HasSuffix(s, "mb") {
-		num := strings.TrimRight(s, "mb")
+	if strings.HasSuffix(s, "mb") {
+		num := strings.TrimSuffix(s, "mb")
+		if v, err := strconv.Atoi(strings.TrimSpace(num)); err == nil {
+			return v
+		}
+	} else if strings.HasSuffix(s, "m") {
+		num := strings.TrimSuffix(s, "m")
 		if v, err := strconv.Atoi(strings.TrimSpace(num)); err == nil {
 			return v
 		}

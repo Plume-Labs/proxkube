@@ -51,7 +51,7 @@ Set the following environment variables to connect to your Proxmox instance:
 | `PROXMOX_SECRET` | API token secret |
 | `PROXMOX_USER` | Username for ticket auth (alternative to token) |
 | `PROXMOX_PASSWORD` | Password for ticket auth |
-| `PROXMOX_INSECURE` | Set to `true` to skip TLS verification |
+| `PROXMOX_INSECURE` | (Development only) Set to `true` to temporarily skip TLS verification. Not recommended for production; instead configure a trusted CA or pinned certificate. |
 | `PROXMOX_NODE` | Default Proxmox node for compose (default: `pve`) |
 | `PROXMOX_STORAGE` | Default storage for compose (default: `local-lvm`) |
 | `PROXMOX_BRIDGE` | Default network bridge for compose (default: `vmbr0`) |

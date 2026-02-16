@@ -122,6 +122,8 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 		}
 	}
 
+	// do() is only used with JSON-encoded bodies. Authentication uses
+	// http.Client.PostForm directly, which sets its own Content-Type.
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
