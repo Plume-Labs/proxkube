@@ -314,10 +314,11 @@ func podToLXCConfig(pod *api.Pod, vmid int) proxmox.LXCConfig {
 		cfg.Hostname = pod.Metadata.Name
 	}
 
-	// Build tags string from spec.tags and metadata.labels.
+	// Tags are always rebuilt from the pod spec and labels to include the
+	// auto "proxkube" tag plus any user-defined tags and label-derived tags.
 	cfg.Tags = buildTags(pod)
 
-	// Build a description that includes pod metadata for dashboard visibility.
+	// Description is only auto-generated when the user hasn't provided one.
 	if cfg.Description == "" {
 		cfg.Description = buildDescription(pod)
 	}

@@ -61,8 +61,9 @@ type PodSpec struct {
 	Volumes []VolumeMount `json:"volumes,omitempty" yaml:"volumes,omitempty"`
 	// DependsOn lists pod names that must be running before this pod starts.
 	DependsOn []string `json:"dependsOn,omitempty" yaml:"dependsOn,omitempty"`
-	// Tags are semicolon-separated labels applied to the container, visible
-	// in the Proxmox dashboard (e.g. "proxkube;web;production").
+	// Tags is a list of tag strings applied to the container. These are
+	// joined with semicolons and sent to the Proxmox API, making them
+	// visible in the Proxmox dashboard (e.g. ["proxkube", "web", "production"]).
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	// Pool is the Proxmox resource pool to assign this container to.
 	Pool string `json:"pool,omitempty" yaml:"pool,omitempty"`
@@ -108,7 +109,7 @@ type VolumeMount struct {
 }
 
 // MountPoint describes an additional Proxmox storage mount point attached
-// to the container (mp0, mp1, …). This maps to the Proxmox "mount point"
+// to the container (mp0, mp1, ...). This maps to the Proxmox "mount point"
 // feature and allows attaching extra storage pools.
 type MountPoint struct {
 	// Storage is the Proxmox storage pool name (e.g. "local-lvm", "cephfs").
