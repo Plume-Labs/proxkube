@@ -68,18 +68,30 @@ sudo ./scripts/uninstall.sh
 
 ### Debian package (apt)
 
-Download the `.deb` package from the [releases page](https://github.com/GothShoot/proxkube/releases)
-and install it:
+Add the ProxKube APT repository to receive updates automatically via
+`apt update && apt upgrade`:
+
+```bash
+echo "deb [trusted=yes] https://gothshoot.github.io/proxkube stable main" \
+  | sudo tee /etc/apt/sources.list.d/proxkube.list
+sudo apt update
+sudo apt install proxkube
+```
+
+Future updates are pulled in with the standard Proxmox upgrade workflow:
+
+```bash
+sudo apt update && sudo apt full-upgrade
+```
+
+The PVE dashboard plugin is deployed automatically on install and upgrade —
+no manual steps are needed.
+
+Alternatively, download the `.deb` package directly from the
+[releases page](https://github.com/GothShoot/proxkube/releases):
 
 ```bash
 sudo apt install ./proxkube_0.5.0_amd64.deb
-```
-
-To upgrade, simply install the new version — `apt` handles the upgrade
-automatically:
-
-```bash
-sudo apt install ./proxkube_0.6.0_amd64.deb
 ```
 
 ## Configuration

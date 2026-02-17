@@ -1,3 +1,8 @@
 #!/bin/sh
 set -e
 systemctl daemon-reload
+
+# Restart PVE services to unload the plugin (only on Proxmox hosts).
+if systemctl is-active --quiet pvedaemon 2>/dev/null; then
+    systemctl restart pvedaemon pveproxy 2>/dev/null || true
+fi

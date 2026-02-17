@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   release:
@@ -32,13 +34,14 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           mkdir -p dpkg-build/usr/bin
           mkdir -p dpkg-build/usr/lib/systemd/system
-          mkdir -p dpkg-build/usr/share/proxkube/deploy/pve-plugin
+          mkdir -p dpkg-build/usr/share/pve-manager/proxkube
+          mkdir -p dpkg-build/usr/share/perl5/PVE/API2
           mkdir -p dpkg-build/DEBIAN
           cp dist/proxkube-linux-amd64 dpkg-build/usr/bin/proxkube
           chmod 755 dpkg-build/usr/bin/proxkube
-          cp deploy/pve-plugin/ProxKubePanel.js dpkg-build/usr/share/proxkube/deploy/pve-plugin/
-          cp deploy/pve-plugin/proxkube.css dpkg-build/usr/share/proxkube/deploy/pve-plugin/
-          cp deploy/pve-plugin/ProxKube.pm dpkg-build/usr/share/proxkube/deploy/pve-plugin/
+          cp deploy/pve-plugin/ProxKubePanel.js dpkg-build/usr/share/pve-manager/proxkube/
+          cp deploy/pve-plugin/proxkube.css dpkg-build/usr/share/pve-manager/proxkube/
+          cp deploy/pve-plugin/ProxKube.pm dpkg-build/usr/share/perl5/PVE/API2/ProxKube.pm
           cp scripts/proxkube-daemon.service dpkg-build/usr/lib/systemd/system/
           cat > dpkg-build/DEBIAN/control << EOF
           Package: proxkube
@@ -53,25 +56,11 @@ jobs:
            Kubernetes operators, and a Proxmox dashboard plugin.
           EOF
           sed -i 's/^          //' dpkg-build/DEBIAN/control
-          cat > dpkg-build/DEBIAN/postinst << 'POSTINST'
-          #!/bin/sh
-          set -e
-          systemctl daemon-reload
-          echo "proxkube installed. Enable the daemon with: systemctl enable --now proxkube-daemon"
-          POSTINST
+          cp debian/postinst dpkg-build/DEBIAN/postinst
           chmod 755 dpkg-build/DEBIAN/postinst
-          cat > dpkg-build/DEBIAN/prerm << 'PRERM'
-          #!/bin/sh
-          set -e
-          systemctl stop proxkube-daemon 2>/dev/null || true
-          systemctl disable proxkube-daemon 2>/dev/null || true
-          PRERM
+          cp debian/prerm dpkg-build/DEBIAN/prerm
           chmod 755 dpkg-build/DEBIAN/prerm
-          cat > dpkg-build/DEBIAN/postrm << 'POSTRM'
-          #!/bin/sh
-          set -e
-          systemctl daemon-reload
-          POSTRM
+          cp debian/postrm dpkg-build/DEBIAN/postrm
           chmod 755 dpkg-build/DEBIAN/postrm
           dpkg-deb --build dpkg-build dist/proxkube_${VERSION}_amd64.deb
 
@@ -83,3 +72,43 @@ jobs:
             dist/proxkube-linux-arm64
             dist/proxkube_*_amd64.deb
           generate_release_notes: true
+
+      - name: Build APT repository
+        run: |
+          sudo apt-get update && sudo apt-get install -y dpkg-dev
+          mkdir -p apt-repo/pool/main
+          cp dist/proxkube_*_amd64.deb apt-repo/pool/main/
+          mkdir -p apt-repo/dists/stable/main/binary-amd64
+          cd apt-repo
+          dpkg-scanpackages pool/ /dev/null > dists/stable/main/binary-amd64/Packages
+          gzip -k dists/stable/main/binary-amd64/Packages
+          cat > dists/stable/Release << EOF
+          Origin: proxkube
+          Label: proxkube
+          Suite: stable
+          Codename: stable
+          Architectures: amd64
+          Components: main
+          Description: ProxKube APT repository
+          EOF
+          sed -i 's/^          //' dists/stable/Release
+          apt-ftparchive release dists/stable >> dists/stable/Release
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apt-repo
+
+  publish-repo:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
