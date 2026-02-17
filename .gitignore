@@ -30,6 +30,10 @@ go.work.sum
 # Build output
 proxkube
 
+# Debian build artifacts
+dpkg-build/
+*.deb
+
 # Editor/IDE
 # .idea/
 # .vscode/
