@@ -30,8 +30,14 @@ communication via Unix sockets and the `pct` CLI.
 - **Auto VMID allocation** — automatically picks the next available VMID when none is specified.
 - **Dependency ordering** — respects `depends_on` to start pods in the correct order.
 - **Token & ticket auth** — supports both API tokens and username/password authentication.
+- **Monitoring daemon** — watches Proxmox for configuration changes (container additions, removals, status changes) and manages monitoring via the Kubernetes Prometheus operator.
+- **Kubernetes engine integration** — supports minikube (single-node) and kubeadm (multi-node) for running monitoring workloads.
+- **CI/CD** — GitHub Actions workflows for continuous integration and release automation with Debian package building.
+- **Debian packaging** — installable via `apt` for seamless upgrades on Proxmox hosts.
 
 ## Installation
+
+### From source
 
 ```bash
 go install github.com/GothShoot/proxkube/cmd/proxkube@latest
@@ -43,6 +49,37 @@ Or build from source:
 git clone https://github.com/GothShoot/proxkube.git
 cd proxkube
 go build -o proxkube ./cmd/proxkube
+```
+
+### Install script
+
+The install script builds proxkube, installs the binary, the systemd service,
+and the PVE dashboard plugin (when running on a Proxmox host):
+
+```bash
+sudo ./scripts/install.sh
+```
+
+To uninstall:
+
+```bash
+sudo ./scripts/uninstall.sh
+```
+
+### Debian package (apt)
+
+Download the `.deb` package from the [releases page](https://github.com/GothShoot/proxkube/releases)
+and install it:
+
+```bash
+sudo apt install ./proxkube_0.5.0_amd64.deb
+```
+
+To upgrade, simply install the new version — `apt` handles the upgrade
+automatically:
+
+```bash
+sudo apt install ./proxkube_0.6.0_amd64.deb
 ```
 
 ## Configuration
@@ -63,6 +100,10 @@ Set the following environment variables to connect to your Proxmox instance:
 | `PROXMOX_POOL` | Default resource pool for containers |
 | `PROXMOX_TAGS` | Comma-separated default tags for containers |
 | `PROXMOX_LOCAL` | Set to `true` to use low-level hypervisor communication (Unix socket + pct CLI) instead of the REST API. Only works on the Proxmox host. |
+| `PROXKUBE_POLL_INTERVAL` | Daemon poll interval (default: `30s`) |
+| `PROXKUBE_NODES` | Comma-separated list of nodes the daemon monitors (default: value of `PROXMOX_NODE`) |
+| `PROXKUBE_K8S_MODE` | Kubernetes engine mode: `minikube` or `kubeadm` (default: `minikube`) |
+| `PROXKUBE_K8S_NAMESPACE` | Kubernetes namespace for proxkube workloads (default: `proxkube-system`) |
 
 ## Usage
 
@@ -337,10 +378,52 @@ proxkube exec 100 -- cat /etc/hostname
 
 This uses `pct exec` under the hood and requires running on the Proxmox host.
 
+### Monitoring Daemon
+
+proxkube includes a monitoring daemon that continuously watches the Proxmox
+cluster for configuration changes (container additions, removals, status
+changes) and integrates with the Kubernetes Prometheus operator for monitoring.
+
+```bash
+# Run the daemon in the foreground
+proxkube daemon
+
+# Deploy Prometheus monitoring stack to Kubernetes and start watching
+proxkube daemon --setup-monitoring
+
+# Run as a systemd service (installed by install.sh or the .deb package)
+sudo systemctl enable --now proxkube-daemon
+```
+
+The daemon polls every configured Proxmox node at a configurable interval
+(default 30s) and emits change events. When `--setup-monitoring` is used,
+it deploys Prometheus ServiceMonitor resources to the Kubernetes cluster
+to scrape proxkube metrics.
+
+Environment variables for the daemon:
+
+```bash
+export PROXKUBE_POLL_INTERVAL=15s       # Poll more frequently
+export PROXKUBE_NODES=pve1,pve2,pve3    # Monitor multiple nodes
+export PROXKUBE_K8S_MODE=kubeadm        # Use kubeadm for multi-node clusters
+export PROXKUBE_K8S_NAMESPACE=monitoring # Custom K8s namespace
+```
+
+### Kubernetes Engine
+
+proxkube supports two Kubernetes deployment modes for running monitoring
+and operator workloads:
+
+- **minikube** (default) — single-node cluster ideal for standalone Proxmox hosts
+- **kubeadm** — multi-node cluster for Proxmox clusters
+
+The Kubernetes engine is used by the daemon to deploy and manage the
+Prometheus operator and related monitoring resources.
+
 ## Project Structure
 
 ```
-cmd/proxkube/           CLI entrypoint
+cmd/proxkube/           CLI entrypoint (includes daemon command)
 pkg/api/                Pod & Stack data models, validation
 pkg/proxmox/            Proxmox VE REST API client
 pkg/hypervisor/         Low-level hypervisor client (Unix socket + pct CLI)
@@ -348,10 +431,15 @@ pkg/controller/         Pod lifecycle & stack orchestration controller
 pkg/compose/            Docker Compose file parser & converter
 pkg/helm/               Helm values parser & converter
 pkg/operator/           Kubernetes operator reconciler & CRD
+pkg/daemon/             Monitoring daemon (Proxmox change detection)
+pkg/k8s/                Kubernetes engine integration (minikube / kubeadm)
 deploy/crds/            Kubernetes CRD YAML
 deploy/helm/proxkube/   Helm chart for deploying the operator into K8s
 deploy/pve-plugin/      Proxmox VE dashboard plugin (JS + CSS + Perl)
+debian/                 Debian packaging files for apt-based installation
+scripts/                Install/uninstall scripts and systemd service
 examples/               Example YAML manifests, compose & Helm values files
+.github/workflows/      CI/CD workflows (GitHub Actions)
 ```
 
 ## Testing

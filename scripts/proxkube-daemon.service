@@ -1,0 +1,15 @@
+[Unit]
+Description=ProxKube Daemon - Proxmox monitoring and Kubernetes integration
+After=network-online.target pvedaemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/proxkube daemon
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=-/etc/default/proxkube
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

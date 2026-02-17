@@ -2,24 +2,346 @@
 //
 // This plugin adds a "ProxKube" panel to the Proxmox VE web interface,
 // allowing users to view and manage proxkube-managed LXC containers
-// directly from the dashboard. It shows pods filtered by the "proxkube"
-// tag, displays their status, and provides basic lifecycle controls.
+// directly from the dashboard. It provides:
+//
+//   - Pod grid with lifecycle controls (start/stop/delete)
+//   - Create Pod dialog for deploying new containers
+//   - Plugin & daemon management tab (status, start/stop/restart/enable/disable)
+//   - Pod detail panel showing resources, tags, and description
+//   - Real-time status refresh and search/filter
 //
 // Installation:
-//   1. Copy this directory to /usr/share/pve-manager/proxkube/
-//   2. Register the plugin: pveam update
-//   3. Reload the Proxmox web interface
-//
-// Or install via the Makefile:
 //   make -C deploy/pve-plugin install
 
-Ext.define('PVE.ProxKube', {
+// ─── Create Pod Dialog ─────────────────────────────────────────────────
+
+Ext.define('PVE.ProxKubeCreatePod', {
+    extend: 'Ext.window.Window',
+    alias: 'widget.pveProxKubeCreatePod',
+
+    title: 'Create ProxKube Pod',
+    iconCls: 'fa fa-plus-circle',
+    modal: true,
+    width: 500,
+    layout: 'fit',
+    resizable: false,
+
+    initComponent: function() {
+        var me = this;
+
+        me.form = Ext.create('Ext.form.Panel', {
+            bodyPadding: 15,
+            border: false,
+            defaults: {
+                anchor: '100%',
+                labelWidth: 100
+            },
+            items: [
+                {
+                    xtype: 'textfield',
+                    name: 'name',
+                    fieldLabel: 'Name',
+                    allowBlank: false,
+                    emptyText: 'my-pod',
+                    regex: /^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$/,
+                    regexText: 'Lowercase letters, numbers, and hyphens only (cannot start or end with hyphen)'
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'node',
+                    fieldLabel: 'Node',
+                    allowBlank: false,
+                    value: 'pve',
+                    emptyText: 'pve'
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'image',
+                    fieldLabel: 'Image',
+                    allowBlank: false,
+                    emptyText: 'docker.io/library/nginx:latest'
+                },
+                {
+                    xtype: 'fieldcontainer',
+                    fieldLabel: 'Resources',
+                    layout: 'hbox',
+                    defaults: { margin: '0 5 0 0' },
+                    items: [
+                        {
+                            xtype: 'numberfield',
+                            name: 'cpu',
+                            fieldLabel: 'CPU',
+                            labelWidth: 30,
+                            width: 100,
+                            value: 1,
+                            minValue: 1,
+                            maxValue: 128
+                        },
+                        {
+                            xtype: 'numberfield',
+                            name: 'memory',
+                            fieldLabel: 'RAM',
+                            labelWidth: 30,
+                            width: 120,
+                            value: 512,
+                            minValue: 64,
+                            step: 128
+                        },
+                        {
+                            xtype: 'numberfield',
+                            name: 'disk',
+                            fieldLabel: 'Disk',
+                            labelWidth: 30,
+                            width: 110,
+                            value: 8,
+                            minValue: 1
+                        }
+                    ]
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'storage',
+                    fieldLabel: 'Storage',
+                    value: 'local-lvm',
+                    emptyText: 'local-lvm'
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'bridge',
+                    fieldLabel: 'Bridge',
+                    value: 'vmbr0',
+                    emptyText: 'vmbr0'
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'tags',
+                    fieldLabel: 'Tags',
+                    emptyText: 'web;production (semicolon-separated)'
+                },
+                {
+                    xtype: 'textfield',
+                    name: 'pool',
+                    fieldLabel: 'Pool',
+                    emptyText: 'Optional resource pool'
+                },
+                {
+                    xtype: 'textarea',
+                    name: 'description',
+                    fieldLabel: 'Description',
+                    emptyText: 'Optional description',
+                    height: 60
+                }
+            ],
+            buttons: [
+                {
+                    text: 'Create',
+                    formBind: true,
+                    iconCls: 'fa fa-check',
+                    handler: function() {
+                        me.doCreate();
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    iconCls: 'fa fa-times',
+                    handler: function() {
+                        me.close();
+                    }
+                }
+            ]
+        });
+
+        Ext.apply(me, {
+            items: [me.form]
+        });
+
+        me.callParent();
+    },
+
+    doCreate: function() {
+        var me = this;
+        var values = me.form.getForm().getValues();
+
+        Proxmox.Utils.API2Request({
+            url: '/api2/extjs/proxkube/pods',
+            method: 'POST',
+            params: values,
+            waitMsgTarget: me,
+            success: function(response) {
+                var data = response.result.data || {};
+                Ext.Msg.alert('Success',
+                    'Pod "' + Ext.htmlEncode(data.name) + '" created (VMID ' + data.vmid + ')');
+                me.close();
+                if (me.onCreateSuccess) {
+                    me.onCreateSuccess();
+                }
+            },
+            failure: function(response) {
+                Ext.Msg.alert('Error',
+                    'Failed to create pod: ' + (response.htmlStatus || 'unknown error'));
+            }
+        });
+    }
+});
+
+// ─── Pod Detail Panel ───────────────────────────────────────────────────
+
+Ext.define('PVE.ProxKubePodDetail', {
     extend: 'Ext.panel.Panel',
+    alias: 'widget.pveProxKubePodDetail',
+
+    title: 'Pod Details',
+    iconCls: 'fa fa-info-circle',
+    bodyPadding: 10,
+    cls: 'proxkube-detail-panel',
+
+    tpl: new Ext.XTemplate(
+        '<div class="proxkube-detail">',
+        '  <h3><i class="fa fa-cube"></i> {name}</h3>',
+        '  <table class="proxkube-detail-table">',
+        '    <tr><td class="proxkube-detail-label">VMID</td><td>{vmid}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Status</td><td><span class="proxkube-status-{status}">{status}</span></td></tr>',
+        '    <tr><td class="proxkube-detail-label">Node</td><td>{node}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">IP</td><td>{[values.ip || "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">CPU</td><td>{[values.cpu !== undefined ? (values.cpu * 100).toFixed(1) + "%" : "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Memory</td>',
+        '      <td>{[values.maxmem ? (Math.round(values.mem/1048576) + " / " + Math.round(values.maxmem/1048576) + " MB") : "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Disk</td>',
+        '      <td>{[values.maxdisk ? (Math.round(values.disk/1073741824) + " / " + Math.round(values.maxdisk/1073741824) + " GB") : "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Uptime</td>',
+        '      <td>{[values.uptime ? (Math.floor(values.uptime/3600) + "h " + Math.floor((values.uptime%3600)/60) + "m") : "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Pool</td><td>{[values.pool || "—"]}</td></tr>',
+        '    <tr><td class="proxkube-detail-label">Tags</td><td>{[values.tags || "—"]}</td></tr>',
+        '  </table>',
+        '</div>'
+    ),
+
+    updateDetail: function(record) {
+        if (record) {
+            this.update(record.data);
+        } else {
+            this.update({});
+        }
+    },
+
+    initComponent: function() {
+        this.html = '<div class="proxkube-detail-empty"><i class="fa fa-hand-pointer-o"></i> Select a pod to view details</div>';
+        this.callParent();
+    }
+});
+
+// ─── Plugin Management Tab ──────────────────────────────────────────────
+
+Ext.define('PVE.ProxKubeManagement', {
+    extend: 'Ext.panel.Panel',
+    alias: 'widget.pveProxKubeManagement',
+
+    title: 'Plugin Management',
+    iconCls: 'fa fa-cogs',
+    bodyPadding: 15,
+    autoScroll: true,
+
+    initComponent: function() {
+        var me = this;
+
+        me.statusTpl = new Ext.XTemplate(
+            '<div class="proxkube-mgmt">',
+            '  <div class="proxkube-mgmt-section">',
+            '    <h3><i class="fa fa-info-circle"></i> ProxKube Status</h3>',
+            '    <table class="proxkube-detail-table">',
+            '      <tr><td class="proxkube-detail-label">Version</td><td>{version}</td></tr>',
+            '      <tr><td class="proxkube-detail-label">Plugin</td>',
+            '        <td><span class="proxkube-badge proxkube-badge-{[values.plugin === "installed" ? "ok" : "warn"]}">{plugin}</span></td></tr>',
+            '      <tr><td class="proxkube-detail-label">Daemon</td>',
+            '        <td><span class="proxkube-badge proxkube-badge-{[values.daemon === "active" ? "ok" : "warn"]}">{daemon}</span></td></tr>',
+            '    </table>',
+            '  </div>',
+            '  <div class="proxkube-mgmt-section">',
+            '    <h3><i class="fa fa-cubes"></i> Pod Statistics</h3>',
+            '    <table class="proxkube-detail-table">',
+            '      <tr><td class="proxkube-detail-label">Total Pods</td><td>{pod_count}</td></tr>',
+            '      <tr><td class="proxkube-detail-label">Running</td><td class="proxkube-status-running">{running_count}</td></tr>',
+            '      <tr><td class="proxkube-detail-label">Stopped</td><td class="proxkube-status-stopped">{stopped_count}</td></tr>',
+            '    </table>',
+            '  </div>',
+            '</div>'
+        );
+
+        me.statusPanel = Ext.create('Ext.panel.Panel', {
+            border: false,
+            html: '<div class="proxkube-detail-empty"><i class="fa fa-spinner fa-spin"></i> Loading status...</div>'
+        });
+
+        me.daemonToolbar = Ext.create('Ext.toolbar.Toolbar', {
+            cls: 'proxkube-daemon-toolbar',
+            items: [
+                { text: 'Refresh', iconCls: 'fa fa-refresh', handler: function() { me.loadStatus(); } },
+                '-',
+                { text: 'Start Daemon', iconCls: 'fa fa-play', itemId: 'daemonStart', handler: function() { me.daemonAction('start'); } },
+                { text: 'Stop Daemon', iconCls: 'fa fa-stop', itemId: 'daemonStop', handler: function() { me.daemonAction('stop'); } },
+                { text: 'Restart Daemon', iconCls: 'fa fa-repeat', itemId: 'daemonRestart', handler: function() { me.daemonAction('restart'); } },
+                '-',
+                { text: 'Enable on Boot', iconCls: 'fa fa-toggle-on', itemId: 'daemonEnable', handler: function() { me.daemonAction('enable'); } },
+                { text: 'Disable on Boot', iconCls: 'fa fa-toggle-off', itemId: 'daemonDisable', handler: function() { me.daemonAction('disable'); } }
+            ]
+        });
+
+        Ext.apply(me, {
+            items: [me.daemonToolbar, me.statusPanel]
+        });
+
+        me.callParent();
+        me.loadStatus();
+    },
+
+    loadStatus: function() {
+        var me = this;
+        Proxmox.Utils.API2Request({
+            url: '/api2/extjs/proxkube/status',
+            method: 'GET',
+            success: function(response) {
+                var data = response.result.data || {};
+                me.statusPanel.update(me.statusTpl.apply(data));
+            },
+            failure: function() {
+                me.statusPanel.update('<div class="proxkube-detail-empty"><i class="fa fa-exclamation-triangle"></i> Failed to load status</div>');
+            }
+        });
+    },
+
+    daemonAction: function(action) {
+        var me = this;
+        Ext.Msg.confirm(
+            'Daemon ' + action.charAt(0).toUpperCase() + action.slice(1),
+            'Are you sure you want to ' + action + ' the ProxKube daemon?',
+            function(btn) {
+                if (btn !== 'yes') return;
+                Proxmox.Utils.API2Request({
+                    url: '/api2/extjs/proxkube/daemon/' + encodeURIComponent(action),
+                    method: 'POST',
+                    success: function(response) {
+                        var data = response.result.data || {};
+                        Ext.Msg.alert('Daemon', Ext.htmlEncode(data.message));
+                        me.loadStatus();
+                    },
+                    failure: function(response) {
+                        Ext.Msg.alert('Error', 'Failed: ' + (response.htmlStatus || 'unknown error'));
+                    }
+                });
+            }
+        );
+    }
+});
+
+// ─── Main ProxKube Panel (Tab Container) ─────────────────────────────────
+
+Ext.define('PVE.ProxKube', {
+    extend: 'Ext.tab.Panel',
     alias: 'widget.pveProxKube',
 
-    title: 'ProxKube Pods',
+    title: 'ProxKube',
     iconCls: 'fa fa-cubes',
-    layout: 'fit',
+    tabPosition: 'top',
 
     // Filter tag used to identify proxkube-managed containers.
     proxkubeTag: 'proxkube',
@@ -27,6 +349,7 @@ Ext.define('PVE.ProxKube', {
     initComponent: function() {
         var me = this;
 
+        // ── Pod Store ────────────────────────────────────────────────
         me.store = Ext.create('Ext.data.Store', {
             fields: [
                 'vmid', 'name', 'status', 'node', 'tags',
@@ -36,7 +359,18 @@ Ext.define('PVE.ProxKube', {
             sorters: [{ property: 'vmid', direction: 'ASC' }]
         });
 
+        // ── Pod Detail Panel ─────────────────────────────────────────
+        me.detailPanel = Ext.create('PVE.ProxKubePodDetail', {
+            region: 'east',
+            width: 280,
+            split: true,
+            collapsible: true,
+            collapsed: false
+        });
+
+        // ── Pod Grid ─────────────────────────────────────────────────
         me.grid = Ext.create('Ext.grid.Panel', {
+            region: 'center',
             store: me.store,
             border: false,
             columns: [
@@ -144,6 +478,13 @@ Ext.define('PVE.ProxKube', {
                         me.loadPods();
                     }
                 },
+                {
+                    text: 'Create Pod',
+                    iconCls: 'fa fa-plus',
+                    handler: function() {
+                        me.showCreateDialog();
+                    }
+                },
                 '-',
                 {
                     text: 'Start',
@@ -161,6 +502,15 @@ Ext.define('PVE.ProxKube', {
                     itemId: 'stopBtn',
                     handler: function() {
                         me.doAction('stop');
+                    }
+                },
+                {
+                    text: 'Restart',
+                    iconCls: 'fa fa-repeat',
+                    disabled: true,
+                    itemId: 'restartBtn',
+                    handler: function() {
+                        me.doAction('restart');
                     }
                 },
                 {
@@ -191,15 +541,30 @@ Ext.define('PVE.ProxKube', {
                 selectionchange: function(sm, records) {
                     var hasSelection = records.length > 0;
                     var selected = records[0];
-                    me.grid.down('#startBtn').setDisabled(!hasSelection || (selected && selected.get('status') === 'running'));
-                    me.grid.down('#stopBtn').setDisabled(!hasSelection || (selected && selected.get('status') !== 'running'));
+                    var isRunning = selected && selected.get('status') === 'running';
+                    me.grid.down('#startBtn').setDisabled(!hasSelection || isRunning);
+                    me.grid.down('#stopBtn').setDisabled(!hasSelection || !isRunning);
+                    me.grid.down('#restartBtn').setDisabled(!hasSelection || !isRunning);
                     me.grid.down('#deleteBtn').setDisabled(!hasSelection);
+                    me.detailPanel.updateDetail(selected);
                 }
             }
         });
 
+        // ── Pods Tab ─────────────────────────────────────────────────
+        me.podsTab = Ext.create('Ext.panel.Panel', {
+            title: 'Pods',
+            iconCls: 'fa fa-cube',
+            layout: 'border',
+            items: [me.grid, me.detailPanel]
+        });
+
+        // ── Management Tab ───────────────────────────────────────────
+        me.mgmtTab = Ext.create('PVE.ProxKubeManagement');
+
         Ext.apply(me, {
-            items: [me.grid]
+            items: [me.podsTab, me.mgmtTab],
+            activeTab: 0
         });
 
         me.callParent();
@@ -309,8 +674,19 @@ Ext.define('PVE.ProxKube', {
         }
     },
 
-    // doAction performs a lifecycle action (start/stop/delete) on the
-    // selected container.
+    // showCreateDialog opens the Create Pod dialog.
+    showCreateDialog: function() {
+        var me = this;
+        Ext.create('PVE.ProxKubeCreatePod', {
+            onCreateSuccess: function() {
+                // Refresh the pod list after creation.
+                Ext.defer(function() { me.loadPods(); }, 2000);
+            }
+        }).show();
+    },
+
+    // doAction performs a lifecycle action (start/stop/restart/delete) on
+    // the selected container.
     doAction: function(action) {
         var me = this;
         var record = me.grid.getSelectionModel().getSelection()[0];
@@ -331,6 +707,32 @@ Ext.define('PVE.ProxKube', {
                 if (action === 'delete') {
                     url = '/nodes/' + encodeURIComponent(node) + '/lxc/' + encodeURIComponent(vmid);
                     method = 'DELETE';
+                } else if (action === 'restart') {
+                    // Stop first, then start.
+                    url = '/nodes/' + encodeURIComponent(node) + '/lxc/' + encodeURIComponent(vmid) + '/status/stop';
+                    method = 'POST';
+                    Proxmox.Utils.API2Request({
+                        url: url,
+                        method: method,
+                        success: function() {
+                            Ext.defer(function() {
+                                Proxmox.Utils.API2Request({
+                                    url: '/nodes/' + encodeURIComponent(node) + '/lxc/' + encodeURIComponent(vmid) + '/status/start',
+                                    method: 'POST',
+                                    success: function() {
+                                        Ext.defer(function() { me.loadPods(); }, 2000);
+                                    },
+                                    failure: function(response) {
+                                        Ext.Msg.alert('Error', 'Failed to start pod: ' + (response.htmlStatus || 'unknown error'));
+                                    }
+                                });
+                            }, 5000);
+                        },
+                        failure: function(response) {
+                            Ext.Msg.alert('Error', 'Failed to stop pod: ' + (response.htmlStatus || 'unknown error'));
+                        }
+                    });
+                    return;
                 } else {
                     url = '/nodes/' + encodeURIComponent(node) + '/lxc/' + encodeURIComponent(vmid) + '/status/' + encodeURIComponent(action);
                     method = 'POST';

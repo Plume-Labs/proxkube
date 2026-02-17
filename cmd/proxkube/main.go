@@ -22,24 +22,34 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/GothShoot/proxkube/pkg/api"
 	"github.com/GothShoot/proxkube/pkg/compose"
 	"github.com/GothShoot/proxkube/pkg/controller"
+	"github.com/GothShoot/proxkube/pkg/daemon"
 	helmPkg "github.com/GothShoot/proxkube/pkg/helm"
 	"github.com/GothShoot/proxkube/pkg/hypervisor"
+	"github.com/GothShoot/proxkube/pkg/k8s"
 	"github.com/GothShoot/proxkube/pkg/operator"
 	"github.com/GothShoot/proxkube/pkg/proxmox"
 )
+
+// version is set at build time via -ldflags "-X main.version=...".
+// Falls back to "0.5.0" when not set by the linker.
+var version = "0.5.0"
 
 const usage = `proxkube - orchestrate Proxmox LXC containers as Kubernetes-like pods
 
@@ -62,6 +72,8 @@ Usage:
   proxkube exec <vmid> -- <command>  Execute a command inside a container (local mode)
   proxkube plugin install            Install the PVE dashboard plugin
 
+  proxkube daemon                    Run the monitoring daemon
+
 Environment variables:
   PROXMOX_URL        Proxmox API URL (e.g. https://proxmox:8006)
   PROXMOX_TOKEN_ID   API token ID (e.g. root@pam!mytoken)
@@ -79,6 +91,11 @@ Environment variables:
   PROXMOX_LOCAL      Set to "true" to use low-level hypervisor communication
                      (Unix socket + pct CLI) instead of the REST API.
                      Only works when running directly on the Proxmox host.
+
+  PROXKUBE_POLL_INTERVAL  Daemon poll interval (default: 30s)
+  PROXKUBE_NODES          Comma-separated list of nodes to monitor (default: PROXMOX_NODE)
+  PROXKUBE_K8S_MODE       Kubernetes mode: minikube or kubeadm (default: minikube)
+  PROXKUBE_K8S_NAMESPACE  Kubernetes namespace for proxkube workloads (default: proxkube-system)
 `
 
 func main() {
@@ -120,10 +137,12 @@ func main() {
 			os.Exit(1)
 		}
 		runPlugin(os.Args[2])
+	case "daemon":
+		runDaemon(os.Args[2:])
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Println("proxkube v0.4.0")
+		fmt.Printf("proxkube %s\n", version)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", command, usage)
 		os.Exit(1)
@@ -656,6 +675,124 @@ func runPlugin(subcmd string) {
 		fmt.Println("  make -C deploy/pve-plugin uninstall")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown plugin subcommand: %s (use install or uninstall)\n", subcmd)
+		os.Exit(1)
+	}
+}
+
+func runDaemon(args []string) {
+	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
+	setupK8s := fs.Bool("setup-monitoring", false, "Deploy Prometheus monitoring stack to Kubernetes")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Build Proxmox client.
+	proxmoxCfg := proxmox.Config{
+		BaseURL:            os.Getenv("PROXMOX_URL"),
+		TokenID:            os.Getenv("PROXMOX_TOKEN_ID"),
+		Secret:             os.Getenv("PROXMOX_SECRET"),
+		Username:           os.Getenv("PROXMOX_USER"),
+		Password:           os.Getenv("PROXMOX_PASSWORD"),
+		InsecureSkipVerify: os.Getenv("PROXMOX_INSECURE") == "true",
+	}
+
+	var watcher daemon.ProxmoxWatcher
+	if os.Getenv("PROXMOX_LOCAL") == "true" {
+		hvCfg := hypervisor.Config{
+			Node: os.Getenv("PROXMOX_NODE"),
+		}
+		hv, err := hypervisor.NewClient(hvCfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		watcher = hv
+	} else {
+		client, err := proxmox.NewClient(proxmoxCfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		watcher = client
+	}
+
+	// Determine nodes.
+	nodes := []string{"pve"}
+	if n := os.Getenv("PROXKUBE_NODES"); n != "" {
+		nodes = nil
+		for _, s := range strings.Split(n, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				nodes = append(nodes, s)
+			}
+		}
+	} else if n := os.Getenv("PROXMOX_NODE"); n != "" {
+		nodes = []string{n}
+	}
+
+	// Poll interval.
+	pollInterval := 30 * time.Second
+	if p := os.Getenv("PROXKUBE_POLL_INTERVAL"); p != "" {
+		d, err := time.ParseDuration(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: invalid PROXKUBE_POLL_INTERVAL: %v\n", err)
+			os.Exit(1)
+		}
+		pollInterval = d
+	}
+
+	// Kubernetes setup.
+	k8sMode := k8s.ModeMinikube
+	if m := os.Getenv("PROXKUBE_K8S_MODE"); m == "kubeadm" {
+		k8sMode = k8s.ModeKubeadm
+	}
+	k8sNamespace := "proxkube-system"
+	if ns := os.Getenv("PROXKUBE_K8S_NAMESPACE"); ns != "" {
+		k8sNamespace = ns
+	}
+
+	if *setupK8s {
+		engine := k8s.NewEngine(k8s.Config{
+			Mode:      k8sMode,
+			Namespace: k8sNamespace,
+		})
+		fmt.Println("==> Setting up Prometheus monitoring stack")
+		manifest := k8s.PrometheusManifests(k8sNamespace)
+		if err := engine.ApplyManifest(manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to apply Prometheus manifests: %v\n", err)
+		}
+		sm := k8s.ServiceMonitorManifest(k8sNamespace)
+		if err := engine.ApplyManifest(sm); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to apply ServiceMonitor: %v\n", err)
+		}
+		fmt.Println("==> Monitoring stack deployed")
+	}
+
+	cfg := daemon.Config{
+		PollInterval:  pollInterval,
+		Nodes:         nodes,
+		ProxmoxConfig: proxmoxCfg,
+		OnChange: func(event daemon.ChangeEvent) {
+			fmt.Println(daemon.FormatEvent(event))
+		},
+	}
+
+	d := daemon.New(cfg, watcher)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle graceful shutdown.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintln(os.Stderr, "\nproxkube-daemon: received shutdown signal")
+		cancel()
+	}()
+
+	if err := d.Run(ctx); err != nil && err != context.Canceled {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }

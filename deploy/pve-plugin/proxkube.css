@@ -37,3 +37,103 @@
 .red {
     color: #ff4d4f;
 }
+
+/* Pod detail panel */
+.proxkube-detail-panel {
+    background: #fafafa;
+}
+
+.proxkube-detail h3 {
+    margin: 0 0 10px 0;
+    padding: 0 0 8px 0;
+    border-bottom: 1px solid #e8e8e8;
+    font-size: 14px;
+    color: #333;
+}
+
+.proxkube-detail h3 i {
+    margin-right: 6px;
+    color: #1890ff;
+}
+
+.proxkube-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.proxkube-detail-table td {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.proxkube-detail-label {
+    color: #888;
+    font-weight: bold;
+    width: 80px;
+    white-space: nowrap;
+}
+
+.proxkube-detail-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #bbb;
+    font-size: 13px;
+}
+
+.proxkube-detail-empty i {
+    display: block;
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+/* Plugin management */
+.proxkube-mgmt {
+    max-width: 600px;
+}
+
+.proxkube-mgmt-section {
+    margin-bottom: 20px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+}
+
+.proxkube-mgmt-section h3 {
+    margin: 0 0 10px 0;
+    padding: 0 0 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    color: #333;
+}
+
+.proxkube-mgmt-section h3 i {
+    margin-right: 6px;
+    color: #1890ff;
+}
+
+/* Status badges */
+.proxkube-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.proxkube-badge-ok {
+    background-color: #f6ffed;
+    border: 1px solid #b7eb8f;
+    color: #52c41a;
+}
+
+.proxkube-badge-warn {
+    background-color: #fff7e6;
+    border: 1px solid #ffd591;
+    color: #fa8c16;
+}
+
+.proxkube-daemon-toolbar {
+    border-bottom: 1px solid #e8e8e8;
+}
