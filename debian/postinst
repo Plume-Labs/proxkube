@@ -44,7 +44,7 @@ EOF
             if [ "$COPIED_ANY" -eq 1 ]; then
                 echo "proxkube: plugin assets copied to $PVE_CONF for cluster distribution."
             else
-                echo "proxkube: no plugin assets were copied to $PVE_CONF (files not found or not readable)."
+                echo "proxkube: warning: plugin assets not found; /etc/pve/proxkube/ may be empty."
             fi
         fi
 
@@ -60,9 +60,10 @@ EOF
         fi
 
         # --- Daemon ---
-        systemctl enable --now proxkube-daemon 2>/dev/null || true
-        if systemctl is-active --quiet proxkube-daemon 2>/dev/null; then
+        if systemctl enable --now proxkube-daemon 2>/dev/null; then
             echo "proxkube: daemon enabled and started."
+        else
+            echo "proxkube: warning: failed to enable/start proxkube-daemon. Check: systemctl status proxkube-daemon"
         fi
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)
