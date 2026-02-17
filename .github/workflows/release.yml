@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build binaries
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          LDFLAGS="-X main.version=${VERSION}"
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/proxkube-linux-amd64 ./cmd/proxkube
+          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/proxkube-linux-arm64 ./cmd/proxkube
+
+      - name: Build Debian package
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p dpkg-build/usr/bin
+          mkdir -p dpkg-build/usr/lib/systemd/system
+          mkdir -p dpkg-build/usr/share/proxkube/deploy/pve-plugin
+          mkdir -p dpkg-build/DEBIAN
+          cp dist/proxkube-linux-amd64 dpkg-build/usr/bin/proxkube
+          chmod 755 dpkg-build/usr/bin/proxkube
+          cp deploy/pve-plugin/ProxKubePanel.js dpkg-build/usr/share/proxkube/deploy/pve-plugin/
+          cp deploy/pve-plugin/proxkube.css dpkg-build/usr/share/proxkube/deploy/pve-plugin/
+          cp deploy/pve-plugin/ProxKube.pm dpkg-build/usr/share/proxkube/deploy/pve-plugin/
+          cp scripts/proxkube-daemon.service dpkg-build/usr/lib/systemd/system/
+          cat > dpkg-build/DEBIAN/control << EOF
+          Package: proxkube
+          Version: ${VERSION}
+          Section: admin
+          Priority: optional
+          Architecture: amd64
+          Maintainer: GothShoot <contact@gothshoot.com>
+          Description: Proxmox LXC orchestrator with Kubernetes-like pod semantics
+           proxkube orchestrates Proxmox VE LXC containers using a Kubernetes-like
+           pod abstraction. It supports OCI images, Docker Compose, Helm charts,
+           Kubernetes operators, and a Proxmox dashboard plugin.
+          EOF
+          sed -i 's/^          //' dpkg-build/DEBIAN/control
+          cat > dpkg-build/DEBIAN/postinst << 'POSTINST'
+          #!/bin/sh
+          set -e
+          systemctl daemon-reload
+          echo "proxkube installed. Enable the daemon with: systemctl enable --now proxkube-daemon"
+          POSTINST
+          chmod 755 dpkg-build/DEBIAN/postinst
+          cat > dpkg-build/DEBIAN/prerm << 'PRERM'
+          #!/bin/sh
+          set -e
+          systemctl stop proxkube-daemon 2>/dev/null || true
+          systemctl disable proxkube-daemon 2>/dev/null || true
+          PRERM
+          chmod 755 dpkg-build/DEBIAN/prerm
+          cat > dpkg-build/DEBIAN/postrm << 'POSTRM'
+          #!/bin/sh
+          set -e
+          systemctl daemon-reload
+          POSTRM
+          chmod 755 dpkg-build/DEBIAN/postrm
+          dpkg-deb --build dpkg-build dist/proxkube_${VERSION}_amd64.deb
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/proxkube-linux-amd64
+            dist/proxkube-linux-arm64
+            dist/proxkube_*_amd64.deb
+          generate_release_notes: true

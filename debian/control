@@ -1,0 +1,19 @@
+Source: proxkube
+Section: admin
+Priority: optional
+Maintainer: GothShoot <contact@gothshoot.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 2:1.21~)
+Standards-Version: 4.6.2
+Homepage: https://github.com/GothShoot/proxkube
+
+Package: proxkube
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Proxmox LXC orchestrator with Kubernetes-like pod semantics
+ proxkube orchestrates Proxmox VE LXC containers using a Kubernetes-like
+ pod abstraction. It supports OCI images, Docker Compose, Helm charts,
+ Kubernetes operators, and includes a Proxmox dashboard plugin.
+ .
+ Features include a monitoring daemon that watches Proxmox configuration
+ changes and manages Prometheus-based monitoring via the Kubernetes
+ Prometheus operator.

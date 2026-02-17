@@ -1,0 +1,10 @@
+proxkube (0.5.0-1) unstable; urgency=medium
+
+  * Add CI/CD workflows (GitHub Actions)
+  * Add install/uninstall scripts
+  * Add Debian packaging for apt-based upgrades
+  * Add Kubernetes engine integration (minikube / kubeadm)
+  * Add monitoring daemon with Prometheus operator support
+  * Add proxkube-daemon systemd service
+
+ -- GothShoot <contact@gothshoot.com>  Tue, 17 Feb 2026 06:00:00 +0000
