@@ -237,6 +237,7 @@ __PACKAGE__->register_method({
             node => get_standard_option('pve-node'),
             name => {
                 type => 'string',
+                pattern => '^[a-z0-9]([a-z0-9\\-]*[a-z0-9])?$',
                 description => 'Pod name (used as hostname).',
             },
             image => {
@@ -313,7 +314,12 @@ __PACKAGE__->register_method({
         my $storage = $param->{storage} // 'local-lvm';
         my $bridge  = $param->{bridge} // 'vmbr0';
         my $pool    = $param->{pool} // '';
-        my $desc    = $param->{description} // "Managed by proxkube\\nName: $name";
+        my $desc    = $param->{description} // "Managed by proxkube - Name: $name";
+
+        # Escape description for safe YAML embedding.
+        $desc =~ s/\\/\\\\/g;
+        $desc =~ s/"/\\"/g;
+        $desc =~ s/\n/\\n/g;
 
         # Build tags — always include "proxkube".
         my @tags = ('proxkube');
@@ -345,8 +351,8 @@ __PACKAGE__->register_method({
         $yaml .= "  pool: $pool\n" if $pool;
         $yaml .= "  description: \"$desc\"\n" if $desc;
 
-        # Write temporary manifest.
-        my $tmpfile = "/tmp/proxkube-pod-$name-$$.yaml";
+        # Write temporary manifest using a safe path independent of user input.
+        my $tmpfile = "/tmp/proxkube-pod-$$-" . int(rand(100000)) . ".yaml";
         PVE::Tools::file_set_contents($tmpfile, $yaml);
 
         # Find proxkube binary.

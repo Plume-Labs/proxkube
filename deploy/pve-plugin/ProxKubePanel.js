@@ -726,7 +726,7 @@ Ext.define('PVE.ProxKube', {
                                         Ext.Msg.alert('Error', 'Failed to start pod: ' + (response.htmlStatus || 'unknown error'));
                                     }
                                 });
-                            }, 3000);
+                            }, 5000);
                         },
                         failure: function(response) {
                             Ext.Msg.alert('Error', 'Failed to stop pod: ' + (response.htmlStatus || 'unknown error'));

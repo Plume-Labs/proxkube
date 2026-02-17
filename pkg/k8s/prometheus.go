@@ -1,11 +1,19 @@
 package k8s
 
+import "regexp"
+
+// validNamespace matches valid Kubernetes namespace names.
+var validNamespace = regexp.MustCompile(`^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$`)
+
 // PrometheusManifests returns the YAML manifests to deploy the Prometheus
 // operator and a basic Prometheus instance in the proxkube namespace.
 // These manifests install the operator CRDs and a scrape configuration
 // that targets proxkube-exported metrics.
 func PrometheusManifests(namespace string) string {
 	if namespace == "" {
+		namespace = "proxkube-system"
+	}
+	if !validNamespace.MatchString(namespace) {
 		namespace = "proxkube-system"
 	}
 	return `---
@@ -82,6 +90,9 @@ data:
 // that discovers and scrapes proxkube daemon metrics endpoints.
 func ServiceMonitorManifest(namespace string) string {
 	if namespace == "" {
+		namespace = "proxkube-system"
+	}
+	if !validNamespace.MatchString(namespace) {
 		namespace = "proxkube-system"
 	}
 	return `apiVersion: monitoring.coreos.com/v1

@@ -114,3 +114,17 @@ func TestServiceMonitorManifestDefaultNamespace(t *testing.T) {
 		t.Error("manifest should use default namespace when empty")
 	}
 }
+
+func TestPrometheusManifestsInvalidNamespace(t *testing.T) {
+	manifest := PrometheusManifests("invalid namespace!")
+	if !strings.Contains(manifest, "namespace: proxkube-system") {
+		t.Error("manifest should fall back to default namespace for invalid input")
+	}
+}
+
+func TestServiceMonitorManifestInvalidNamespace(t *testing.T) {
+	manifest := ServiceMonitorManifest("../../etc")
+	if !strings.Contains(manifest, "namespace: proxkube-system") {
+		t.Error("manifest should fall back to default namespace for invalid input")
+	}
+}

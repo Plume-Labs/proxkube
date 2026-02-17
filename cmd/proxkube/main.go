@@ -47,6 +47,10 @@ import (
 	"github.com/GothShoot/proxkube/pkg/proxmox"
 )
 
+// version is set at build time via -ldflags "-X main.version=...".
+// Falls back to "0.5.0" when not set by the linker.
+var version = "0.5.0"
+
 const usage = `proxkube - orchestrate Proxmox LXC containers as Kubernetes-like pods
 
 Usage:
@@ -138,7 +142,7 @@ func main() {
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Println("proxkube v0.5.0")
+		fmt.Printf("proxkube %s\n", version)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n%s", command, usage)
 		os.Exit(1)
