@@ -78,6 +78,10 @@ sudo apt update
 sudo apt install proxkube
 ```
 
+> **Note:** The `[trusted=yes]` option skips GPG signature verification.
+> This is acceptable for internal use. For production environments, a
+> GPG-signed repository is recommended — see the project wiki for details.
+
 Future updates are pulled in with the standard Proxmox upgrade workflow:
 
 ```bash

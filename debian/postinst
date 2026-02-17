@@ -4,7 +4,9 @@ systemctl daemon-reload
 
 # Reload PVE services so the dashboard plugin is available immediately
 # after install or upgrade. Runs only on Proxmox hosts.
+# Note: a restart is required because PVE does not support reloading plugins.
 if systemctl is-active --quiet pvedaemon 2>/dev/null; then
+    echo "proxkube: restarting PVE services to load updated plugin (brief interruption)..."
     systemctl restart pvedaemon pveproxy 2>/dev/null || true
     echo "proxkube: PVE dashboard plugin deployed."
 fi
