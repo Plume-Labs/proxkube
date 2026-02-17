@@ -110,10 +110,10 @@ __PACKAGE__->register_method({
         # Detect proxkube binary version.
         my $version = 'unknown';
         my $proxkube_bin;
-        if (-x '/usr/local/bin/proxkube') {
-            $proxkube_bin = '/usr/local/bin/proxkube';
-        } elsif (-x '/usr/bin/proxkube') {
+        if (-x '/usr/bin/proxkube') {
             $proxkube_bin = '/usr/bin/proxkube';
+        } elsif (-x '/usr/local/bin/proxkube') {
+            $proxkube_bin = '/usr/local/bin/proxkube';
         }
         if ($proxkube_bin) {
             eval {
@@ -356,8 +356,8 @@ __PACKAGE__->register_method({
         PVE::Tools::file_set_contents($tmpfile, $yaml);
 
         # Find proxkube binary.
-        my $proxkube_bin = '/usr/local/bin/proxkube';
-        $proxkube_bin = '/usr/bin/proxkube' unless -x $proxkube_bin;
+        my $proxkube_bin = '/usr/bin/proxkube';
+        $proxkube_bin = '/usr/local/bin/proxkube' unless -x $proxkube_bin;
 
         # Apply the manifest.
         my $output = '';
