@@ -2,12 +2,19 @@
 set -e
 systemctl daemon-reload
 
-# Clean cluster-wide plugin assets.
-if [ -d /etc/pve/proxkube ]; then
-    rm -rf /etc/pve/proxkube
-fi
+case "$1" in
+    remove|purge)
+        # Clean cluster-wide plugin assets.
+        if [ -d /etc/pve/proxkube ]; then
+            rm -rf /etc/pve/proxkube
+        fi
 
-# Restart PVE services to unload the plugin (only on Proxmox hosts).
-if systemctl is-active --quiet pvedaemon 2>/dev/null; then
-    systemctl restart pvedaemon pveproxy 2>/dev/null || true
-fi
+        # Restart PVE services to unload the plugin (only on Proxmox hosts).
+        if systemctl is-active --quiet pvedaemon 2>/dev/null; then
+            systemctl restart pvedaemon pveproxy 2>/dev/null || true
+        fi
+        ;;
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # No cleanup or service restart during upgrade-related actions.
+        ;;
+esac

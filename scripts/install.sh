@@ -76,7 +76,10 @@ EOF
 fi
 
 # Enable and start the daemon.
-systemctl enable --now proxkube-daemon 2>/dev/null || true
-echo "    Daemon enabled and started."
+if systemctl enable --now proxkube-daemon 2>/dev/null; then
+    echo "    Daemon enabled and started."
+else
+    echo "    Warning: failed to enable and start proxkube-daemon. Please check systemctl status." >&2
+fi
 
 echo "==> proxkube installation complete"

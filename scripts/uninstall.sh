@@ -16,7 +16,7 @@ echo "==> Uninstalling proxkube"
 # Stop and disable daemon.
 systemctl stop proxkube-daemon 2>/dev/null || true
 systemctl disable proxkube-daemon 2>/dev/null || true
-echo "    Daemon stopped and disabled."
+echo "    Daemon stop/disable attempted (errors ignored)."
 
 # Remove binary.
 if [ -f "$BINDIR/proxkube" ]; then
@@ -49,10 +49,10 @@ if [ -d "$PVE_CONF" ]; then
     echo "    Removed $PVE_CONF"
 fi
 
-# Remove environment file.
+# Preserve environment file (local configuration).
 if [ -f "$DEFAULTS" ]; then
-    rm -f "$DEFAULTS"
-    echo "    Removed $DEFAULTS"
+    echo "    Preserving local configuration at $DEFAULTS"
+    echo "    To remove it as well, run: sudo apt purge proxkube or delete the file manually."
 fi
 
 echo "==> proxkube uninstalled"

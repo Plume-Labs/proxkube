@@ -379,6 +379,8 @@ plugin on another node, copy the files from there:
 
 ```bash
 # On any other node in the same cluster:
+mkdir -p /usr/share/pve-manager/proxkube
+mkdir -p /usr/share/perl5/PVE/API2
 cp /etc/pve/proxkube/ProxKubePanel.js /usr/share/pve-manager/proxkube/
 cp /etc/pve/proxkube/proxkube.css      /usr/share/pve-manager/proxkube/
 cp /etc/pve/proxkube/ProxKube.pm       /usr/share/perl5/PVE/API2/ProxKube.pm

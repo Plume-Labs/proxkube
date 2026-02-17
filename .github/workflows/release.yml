@@ -75,24 +75,26 @@ jobs:
 
       - name: Build APT repository
         run: |
-          sudo apt-get update && sudo apt-get install -y dpkg-dev
+          sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
           mkdir -p apt-repo/pool/main
           cp dist/proxkube_*_amd64.deb apt-repo/pool/main/
           mkdir -p apt-repo/dists/stable/main/binary-amd64
           cd apt-repo
           dpkg-scanpackages pool/ /dev/null > dists/stable/main/binary-amd64/Packages
           gzip -k dists/stable/main/binary-amd64/Packages
-          cat > dists/stable/Release << EOF
-          Origin: proxkube
-          Label: proxkube
-          Suite: stable
-          Codename: stable
-          Architectures: amd64
-          Components: main
-          Description: ProxKube APT repository
+          cat > apt-ftparchive-release.conf << 'EOF'
+          APT::FTPArchive::Release {
+            Origin "proxkube";
+            Label "proxkube";
+            Suite "stable";
+            Codename "stable";
+            Architectures "amd64";
+            Components "main";
+            Description "ProxKube APT repository";
+          };
           EOF
-          sed -i 's/^          //' dists/stable/Release
-          apt-ftparchive release dists/stable >> dists/stable/Release
+          sed -i 's/^          //' apt-ftparchive-release.conf
+          apt-ftparchive -c apt-ftparchive-release.conf release dists/stable > dists/stable/Release
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
