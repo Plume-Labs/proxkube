@@ -1,5 +1,5 @@
 #!/bin/sh
-# proxkube install script — one-command setup.
+# proxkube install script - one-command setup.
 # Usage: sudo ./scripts/install.sh
 #
 # Installs the binary, systemd service, PVE dashboard plugin, and
@@ -63,15 +63,16 @@ if [ -d "$PVE_SHARE" ]; then
     echo "    PVE services restarted. Reload the web interface."
 fi
 
-# Configure local mode — uses PVE Unix socket + pct CLI, no API tokens.
+# Configure local mode - uses PVE Unix socket + pct CLI, no API tokens.
 if [ ! -f "$DEFAULTS" ]; then
-    cat > "$DEFAULTS" <<'EOF'
-# proxkube daemon environment — sourced by the systemd unit.
+    NODE_NAME="$(hostname -s 2>/dev/null || echo pve)"
+    cat > "$DEFAULTS" <<EOF
+# proxkube daemon environment - sourced by the systemd unit.
 # Local mode uses the PVE Unix socket and pct CLI; no API tokens needed.
 PROXMOX_LOCAL=true
-PROXMOX_NODE=pve
+PROXMOX_NODE=${NODE_NAME}
 EOF
-    echo "    Created $DEFAULTS (PROXMOX_LOCAL=true)."
+    echo "    Created $DEFAULTS (PROXMOX_LOCAL=true, node=${NODE_NAME})."
 fi
 
 # Enable and start the daemon.

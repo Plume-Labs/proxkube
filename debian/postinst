@@ -13,13 +13,14 @@ PVE_CONF="/etc/pve/proxkube"
 # Write a minimal /etc/default/proxkube that enables local mode.
 # Existing user customisations are preserved.
 if [ ! -f "$DEFAULTS" ]; then
-    cat > "$DEFAULTS" <<'EOF'
-# proxkube daemon environment — sourced by the systemd unit.
+    NODE_NAME="$(hostname -s 2>/dev/null || echo pve)"
+    cat > "$DEFAULTS" <<EOF
+# proxkube daemon environment - sourced by the systemd unit.
 # Local mode uses the PVE Unix socket and pct CLI; no API tokens needed.
 PROXMOX_LOCAL=true
-PROXMOX_NODE=pve
+PROXMOX_NODE=${NODE_NAME}
 EOF
-    echo "proxkube: created $DEFAULTS (PROXMOX_LOCAL=true)."
+    echo "proxkube: created $DEFAULTS (PROXMOX_LOCAL=true, node=${NODE_NAME})."
 fi
 
 # --- Cluster-wide configuration ---

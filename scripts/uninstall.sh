@@ -1,5 +1,5 @@
 #!/bin/sh
-# proxkube uninstall script — one-command removal.
+# proxkube uninstall script - one-command removal.
 # Usage: sudo ./scripts/uninstall.sh
 set -e
 
