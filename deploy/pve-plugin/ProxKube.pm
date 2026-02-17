@@ -6,7 +6,7 @@ use warnings;
 use PVE::RESTHandler;
 use PVE::JSONSchema qw(get_standard_option);
 use PVE::Cluster;
-use PVE::LXC;
+use PVE::Tools;
 
 use base qw(PVE::RESTHandler);
 
@@ -109,12 +109,18 @@ __PACKAGE__->register_method({
 
         # Detect proxkube binary version.
         my $version = 'unknown';
+        my $proxkube_bin;
         if (-x '/usr/local/bin/proxkube') {
-            $version = `proxkube version 2>/dev/null` // 'unknown';
-            chomp $version;
+            $proxkube_bin = '/usr/local/bin/proxkube';
         } elsif (-x '/usr/bin/proxkube') {
-            $version = `proxkube version 2>/dev/null` // 'unknown';
-            chomp $version;
+            $proxkube_bin = '/usr/bin/proxkube';
+        }
+        if ($proxkube_bin) {
+            eval {
+                PVE::Tools::run_command([$proxkube_bin, 'version'],
+                    outfunc => sub { $version = $_[0]; });
+            };
+            chomp $version if $version;
         }
 
         # Plugin installed?
@@ -125,9 +131,11 @@ __PACKAGE__->register_method({
 
         # Daemon status.
         my $daemon_status = 'inactive';
-        my $systemctl_out = `systemctl is-active proxkube-daemon 2>/dev/null` // '';
-        chomp $systemctl_out;
-        $daemon_status = $systemctl_out if $systemctl_out;
+        eval {
+            PVE::Tools::run_command(['systemctl', 'is-active', 'proxkube-daemon'],
+                outfunc => sub { $daemon_status = $_[0]; });
+        };
+        chomp $daemon_status if $daemon_status;
 
         # Count pods.
         my ($pod_count, $running_count, $stopped_count) = (0, 0, 0);
@@ -185,21 +193,30 @@ __PACKAGE__->register_method({
         my ($param) = @_;
         my $action = $param->{action};
 
-        my $cmd;
+        my @cmd;
+        my $message;
         if ($action eq 'enable') {
-            $cmd = 'systemctl enable --now proxkube-daemon 2>&1';
+            @cmd = ('systemctl', 'enable', '--now', 'proxkube-daemon');
+            $message = 'Daemon enabled and started';
         } elsif ($action eq 'disable') {
-            $cmd = 'systemctl disable --now proxkube-daemon 2>&1';
+            @cmd = ('systemctl', 'disable', '--now', 'proxkube-daemon');
+            $message = 'Daemon disabled and stopped';
         } else {
-            $cmd = "systemctl $action proxkube-daemon 2>&1";
+            @cmd = ('systemctl', $action, 'proxkube-daemon');
+            $message = "Daemon ${action}ed successfully";
         }
 
-        my $output = `$cmd`;
-        my $rc = $? >> 8;
+        my $output = '';
+        eval {
+            PVE::Tools::run_command(\@cmd,
+                outfunc => sub { $output .= $_[0]; },
+                errfunc => sub { $output .= $_[0]; });
+        };
+        my $err = $@;
 
         return {
-            success => ($rc == 0) ? 1 : 0,
-            message => $rc == 0 ? "Daemon ${action}ed successfully" : "Failed: $output",
+            success => $err ? 0 : 1,
+            message => $err ? "Failed: $output" : $message,
         };
     },
 });
@@ -296,33 +313,63 @@ __PACKAGE__->register_method({
         my $storage = $param->{storage} // 'local-lvm';
         my $bridge  = $param->{bridge} // 'vmbr0';
         my $pool    = $param->{pool} // '';
-        my $desc    = $param->{description} // "Managed by proxkube\nName: $name";
+        my $desc    = $param->{description} // "Managed by proxkube\\nName: $name";
 
         # Build tags — always include "proxkube".
-        my $tags = 'proxkube';
+        my @tags = ('proxkube');
         if ($param->{tags}) {
-            $tags .= ';' . $param->{tags};
+            push @tags, split(/;/, $param->{tags});
         }
 
-        # Allocate VMID.
-        my $vmid = PVE::Cluster::get_next_vmid();
+        # Generate a pod YAML manifest and apply it via proxkube CLI.
+        my $yaml = "apiVersion: proxkube/v1\n";
+        $yaml .= "kind: Pod\n";
+        $yaml .= "metadata:\n";
+        $yaml .= "  name: $name\n";
+        $yaml .= "spec:\n";
+        $yaml .= "  node: $node\n";
+        $yaml .= "  image: $image\n";
+        $yaml .= "  resources:\n";
+        $yaml .= "    cpu: $cpu\n";
+        $yaml .= "    memory: $memory\n";
+        $yaml .= "    disk: $disk\n";
+        $yaml .= "    storage: $storage\n";
+        $yaml .= "    network:\n";
+        $yaml .= "      bridge: $bridge\n";
+        $yaml .= "      ip: dhcp\n";
+        $yaml .= "  tags:\n";
+        foreach my $tag (@tags) {
+            $tag =~ s/[^a-zA-Z0-9\-_=]//g;
+            $yaml .= "    - $tag\n" if $tag;
+        }
+        $yaml .= "  pool: $pool\n" if $pool;
+        $yaml .= "  description: \"$desc\"\n" if $desc;
 
-        # Build LXC config and create via PVE API.
-        my $conf = {
-            vmid        => $vmid,
-            ostemplate  => $image,
-            hostname    => $name,
-            cores       => $cpu,
-            memory      => $memory,
-            rootfs      => "$storage:$disk",
-            net0        => "name=eth0,bridge=$bridge,ip=dhcp",
-            tags        => $tags,
-            description => $desc,
-            start       => 1,
+        # Write temporary manifest.
+        my $tmpfile = "/tmp/proxkube-pod-$name-$$.yaml";
+        PVE::Tools::file_set_contents($tmpfile, $yaml);
+
+        # Find proxkube binary.
+        my $proxkube_bin = '/usr/local/bin/proxkube';
+        $proxkube_bin = '/usr/bin/proxkube' unless -x $proxkube_bin;
+
+        # Apply the manifest.
+        my $output = '';
+        eval {
+            PVE::Tools::run_command([$proxkube_bin, 'apply', '-f', $tmpfile],
+                outfunc => sub { $output .= $_[0]; },
+                errfunc => sub { $output .= $_[0]; });
         };
-        $conf->{pool} = $pool if $pool;
+        my $err = $@;
+        unlink $tmpfile;
 
-        PVE::LXC::create_lxc($node, $conf);
+        die "Failed to create pod: $output\n" if $err;
+
+        # Extract VMID from output (format: "pod/name applied (VMID NNN, phase Running)")
+        my $vmid = 0;
+        if ($output =~ /VMID\s+(\d+)/) {
+            $vmid = int($1);
+        }
 
         return {
             vmid => $vmid,

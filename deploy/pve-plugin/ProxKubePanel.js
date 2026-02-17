@@ -43,8 +43,8 @@ Ext.define('PVE.ProxKubeCreatePod', {
                     fieldLabel: 'Name',
                     allowBlank: false,
                     emptyText: 'my-pod',
-                    regex: /^[a-z0-9][a-z0-9\-]*$/,
-                    regexText: 'Lowercase letters, numbers, and hyphens only'
+                    regex: /^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$/,
+                    regexText: 'Lowercase letters, numbers, and hyphens only (cannot start or end with hyphen)'
                 },
                 {
                     xtype: 'textfield',
