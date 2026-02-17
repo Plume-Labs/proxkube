@@ -1,4 +1,71 @@
 #!/bin/sh
 set -e
 systemctl daemon-reload
-echo "proxkube installed. Enable the daemon with: systemctl enable --now proxkube-daemon"
+
+case "$1" in
+    configure)
+        # On a Proxmox host the plugin is installed directly via the .deb paths
+        # and the daemon should use local mode (Unix socket + pct) so no API
+        # tokens are required.
+
+        DEFAULTS="/etc/default/proxkube"
+        PVE_CONF="/etc/pve/proxkube"
+
+        # --- Local-mode environment ---
+        # Write a minimal /etc/default/proxkube that enables local mode.
+        # Existing user customisations are preserved.
+        if [ ! -f "$DEFAULTS" ]; then
+            NODE_NAME="$(hostname -s 2>/dev/null || echo pve)"
+            cat > "$DEFAULTS" <<EOF
+# proxkube daemon environment - sourced by the systemd unit.
+# Local mode uses the PVE Unix socket and pct CLI; no API tokens needed.
+PROXMOX_LOCAL=true
+PROXMOX_NODE=${NODE_NAME}
+EOF
+            echo "proxkube: created $DEFAULTS (PROXMOX_LOCAL=true, node=${NODE_NAME})."
+        fi
+
+        # --- Cluster-wide configuration ---
+        # /etc/pve is the Proxmox cluster filesystem (pmxcfs). Storing a copy of
+        # the plugin assets there lets other nodes install proxkube from the same
+        # cluster without downloading anything extra.
+        if [ -d /etc/pve ]; then
+            mkdir -p "$PVE_CONF"
+            COPIED_ANY=0
+            for f in /usr/share/pve-manager/proxkube/ProxKubePanel.js \
+                     /usr/share/pve-manager/proxkube/proxkube.css \
+                     /usr/share/perl5/PVE/API2/ProxKube.pm; do
+                if [ -f "$f" ]; then
+                    if cp "$f" "$PVE_CONF/" 2>/dev/null; then
+                        COPIED_ANY=1
+                    fi
+                fi
+            done
+            if [ "$COPIED_ANY" -eq 1 ]; then
+                echo "proxkube: plugin assets copied to $PVE_CONF for cluster distribution."
+            else
+                echo "proxkube: warning: plugin assets not found; /etc/pve/proxkube/ may be empty."
+            fi
+        fi
+
+        # --- PVE services ---
+        # Restart so the dashboard plugin is loaded immediately.
+        if systemctl is-active --quiet pvedaemon 2>/dev/null; then
+            echo "proxkube: restarting PVE services to load updated plugin (brief interruption)..."
+            if systemctl restart pvedaemon pveproxy 2>/dev/null; then
+                echo "proxkube: PVE dashboard plugin deployed."
+            else
+                echo "proxkube: plugin assets installed, but failed to restart PVE services; the dashboard plugin will load after services are restarted manually."
+            fi
+        fi
+
+        # --- Daemon ---
+        if systemctl enable --now proxkube-daemon 2>/dev/null; then
+            echo "proxkube: daemon enabled and started."
+        else
+            echo "proxkube: warning: failed to enable/start proxkube-daemon. Check: systemctl status proxkube-daemon"
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+esac

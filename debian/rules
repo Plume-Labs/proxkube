@@ -10,13 +10,15 @@ override_dh_auto_install:
 	install -D -m 0755 proxkube $(CURDIR)/debian/proxkube/usr/bin/proxkube
 	install -D -m 0644 scripts/proxkube-daemon.service \
 		$(CURDIR)/debian/proxkube/usr/lib/systemd/system/proxkube-daemon.service
-	install -d $(CURDIR)/debian/proxkube/usr/share/proxkube/deploy/pve-plugin
+	# PVE plugin — staged to Proxmox paths so apt owns the files
+	install -d $(CURDIR)/debian/proxkube/usr/share/pve-manager/proxkube
 	install -m 0644 deploy/pve-plugin/ProxKubePanel.js \
-		$(CURDIR)/debian/proxkube/usr/share/proxkube/deploy/pve-plugin/
+		$(CURDIR)/debian/proxkube/usr/share/pve-manager/proxkube/
 	install -m 0644 deploy/pve-plugin/proxkube.css \
-		$(CURDIR)/debian/proxkube/usr/share/proxkube/deploy/pve-plugin/
+		$(CURDIR)/debian/proxkube/usr/share/pve-manager/proxkube/
+	install -d $(CURDIR)/debian/proxkube/usr/share/perl5/PVE/API2
 	install -m 0644 deploy/pve-plugin/ProxKube.pm \
-		$(CURDIR)/debian/proxkube/usr/share/proxkube/deploy/pve-plugin/
+		$(CURDIR)/debian/proxkube/usr/share/perl5/PVE/API2/ProxKube.pm
 
 override_dh_auto_test:
 	go test ./...

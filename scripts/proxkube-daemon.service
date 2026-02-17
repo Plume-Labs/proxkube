@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/proxkube daemon
+ExecStart=/usr/bin/proxkube daemon
 Restart=on-failure
 RestartSec=10
 EnvironmentFile=-/etc/default/proxkube

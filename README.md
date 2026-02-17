@@ -51,16 +51,20 @@ cd proxkube
 go build -o proxkube ./cmd/proxkube
 ```
 
-### Install script
+### Install script (one command)
 
 The install script builds proxkube, installs the binary, the systemd service,
-and the PVE dashboard plugin (when running on a Proxmox host):
+the PVE dashboard plugin, enables local mode (no API tokens required), and
+starts the daemon — all in a single command:
 
 ```bash
 sudo ./scripts/install.sh
 ```
 
-To uninstall:
+Everything is ready immediately — the daemon runs and the plugin appears in
+the Proxmox web interface after a page reload.
+
+To uninstall everything in one command:
 
 ```bash
 sudo ./scripts/uninstall.sh
@@ -68,18 +72,39 @@ sudo ./scripts/uninstall.sh
 
 ### Debian package (apt)
 
-Download the `.deb` package from the [releases page](https://github.com/GothShoot/proxkube/releases)
-and install it:
+Add the ProxKube APT repository and install with a single command:
+
+```bash
+echo "deb [trusted=yes] https://gothshoot.github.io/proxkube stable main" \
+  | sudo tee /etc/apt/sources.list.d/proxkube.list \
+  && sudo apt update && sudo apt install -y proxkube
+```
+
+> **Note:** The `[trusted=yes]` option skips GPG signature verification.
+> This is acceptable for internal use. For production environments, a
+> GPG-signed repository is recommended — see the project wiki for details.
+
+The install configures local mode automatically (`PROXMOX_LOCAL=true`) so
+the daemon uses the PVE Unix socket and `pct` CLI — no API tokens needed.
+The PVE dashboard plugin is deployed and the daemon is started.
+
+Future updates are pulled in with the standard Proxmox upgrade workflow:
+
+```bash
+sudo apt update && sudo apt full-upgrade
+```
+
+To remove everything:
+
+```bash
+sudo apt remove proxkube
+```
+
+Alternatively, download the `.deb` package directly from the
+[releases page](https://github.com/GothShoot/proxkube/releases):
 
 ```bash
 sudo apt install ./proxkube_0.5.0_amd64.deb
-```
-
-To upgrade, simply install the new version — `apt` handles the upgrade
-automatically:
-
-```bash
-sudo apt install ./proxkube_0.6.0_amd64.deb
 ```
 
 ## Configuration
@@ -334,21 +359,36 @@ panel to the web interface. The plugin shows all proxkube-managed containers
 (filtered by the `proxkube` tag) with real-time status, CPU/memory metrics,
 tags, IPs, and lifecycle controls (start, stop, delete).
 
-Install the plugin on your Proxmox host:
+When installed via `apt` or `scripts/install.sh`, the plugin is set up
+automatically — no extra steps are needed.
+
+For a manual installation:
 
 ```bash
-# Using the Makefile
 make -C deploy/pve-plugin install
-
-# Or manually
-cp deploy/pve-plugin/ProxKubePanel.js /usr/share/pve-manager/proxkube/
-cp deploy/pve-plugin/proxkube.css      /usr/share/pve-manager/proxkube/
-cp deploy/pve-plugin/ProxKube.pm       /usr/share/perl5/PVE/API2/
-systemctl restart pvedaemon pveproxy
 ```
 
 Then reload the Proxmox web interface. The "ProxKube Pods" panel will appear
 in the datacenter view.
+
+#### Multi-node deployment
+
+The install process copies plugin assets to `/etc/pve/proxkube/` — the
+Proxmox cluster filesystem that is shared across all nodes. To deploy the
+plugin on another node, copy the files from there:
+
+```bash
+# On any other node in the same cluster:
+mkdir -p /usr/share/pve-manager/proxkube
+mkdir -p /usr/share/perl5/PVE/API2
+cp /etc/pve/proxkube/ProxKubePanel.js /usr/share/pve-manager/proxkube/
+cp /etc/pve/proxkube/proxkube.css      /usr/share/pve-manager/proxkube/
+cp /etc/pve/proxkube/ProxKube.pm       /usr/share/perl5/PVE/API2/ProxKube.pm
+systemctl restart pvedaemon pveproxy
+```
+
+Or simply install the `proxkube` package on each node — `apt` will handle
+the setup identically.
 
 ### Low-Level Hypervisor Mode
 
@@ -359,7 +399,11 @@ and communicate with the hypervisor at a lower level:
   (listing containers, getting status, fetching next VMID)
 - **`pct` CLI** for write operations (create, start, stop, destroy containers)
 
-Enable this mode by setting `PROXMOX_LOCAL=true`:
+This mode is enabled automatically when proxkube is installed via `apt` or
+`scripts/install.sh` (`PROXMOX_LOCAL=true` in `/etc/default/proxkube`). No
+API tokens are needed.
+
+To enable it manually:
 
 ```bash
 export PROXMOX_LOCAL=true

@@ -1,24 +1,22 @@
 #!/bin/sh
-# proxkube uninstall script
+# proxkube uninstall script - one-command removal.
 # Usage: sudo ./scripts/uninstall.sh
 set -e
 
-PREFIX="${PREFIX:-/usr/local}"
+PREFIX="${PREFIX:-/usr}"
 BINDIR="${PREFIX}/bin"
 SYSTEMD_DIR="/usr/lib/systemd/system"
-SHARE_DIR="/usr/share/proxkube"
 PVE_SHARE="/usr/share/pve-manager"
 PERL_DIR="/usr/share/perl5/PVE/API2"
+PVE_CONF="/etc/pve/proxkube"
+DEFAULTS="/etc/default/proxkube"
 
 echo "==> Uninstalling proxkube"
 
 # Stop and disable daemon.
-if systemctl is-active proxkube-daemon >/dev/null 2>&1; then
-    systemctl stop proxkube-daemon
-fi
-if systemctl is-enabled proxkube-daemon >/dev/null 2>&1; then
-    systemctl disable proxkube-daemon
-fi
+systemctl stop proxkube-daemon 2>/dev/null || true
+systemctl disable proxkube-daemon 2>/dev/null || true
+echo "    Daemon stop/disable attempted (errors ignored)."
 
 # Remove binary.
 if [ -f "$BINDIR/proxkube" ]; then
@@ -41,14 +39,20 @@ fi
 if [ -f "$PERL_DIR/ProxKube.pm" ]; then
     rm -f "$PERL_DIR/ProxKube.pm"
 fi
-if [ -d "$PVE_SHARE" ]; then
+if systemctl is-active --quiet pvedaemon 2>/dev/null; then
     systemctl restart pvedaemon pveproxy 2>/dev/null || true
 fi
 
-# Remove shared resources.
-if [ -d "$SHARE_DIR" ]; then
-    rm -rf "$SHARE_DIR"
-    echo "    Removed $SHARE_DIR"
+# Remove cluster-wide plugin assets.
+if [ -d "$PVE_CONF" ]; then
+    rm -rf "$PVE_CONF"
+    echo "    Removed $PVE_CONF"
+fi
+
+# Preserve environment file (local configuration).
+if [ -f "$DEFAULTS" ]; then
+    echo "    Preserving local configuration at $DEFAULTS"
+    echo "    To remove it as well, run: sudo apt purge proxkube or delete the file manually."
 fi
 
 echo "==> proxkube uninstalled"
